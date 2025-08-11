@@ -141,13 +141,12 @@ def select_from_menu(prompt: str, items: List[Any], name_key: str = 'name', retu
             print("❌ Por favor, introduce un número.")
 
 def select_api_grouped() -> Optional[str]:
-    """Muestra un menú de APIs agrupadas por nombre base, excluyendo PROD."""
+    """Muestra un menú de APIs agrupadas por nombre base."""
     print("🔄 Obteniendo listado de APIs...")
     apis_data = run_aws_command("aws apigateway get-rest-apis")
     if not apis_data or 'items' not in apis_data: return None
 
     groups = {}
-    environments_to_exclude = ['PROD']
     
     for api in apis_data['items']:
         name = api.get('name', '')
@@ -157,7 +156,6 @@ def select_api_grouped() -> Optional[str]:
         if len(parts) == 2 and parts[1].upper() in ['CI', 'DEV', 'PROD']:
             env = parts[1].upper()
             base_name = parts[0]
-            if env in environments_to_exclude: continue
         else:
             base_name = name
 
