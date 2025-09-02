@@ -736,13 +736,16 @@ class APIGatewayManager:
         if not result["success"]:
             return False
         
-        # Preparar headers de integración
+        # Preparar headers de integración (solo auth headers)
         integration_headers = auth_headers.copy()
+        
+        # Preparar path parameters para URL path parameters (no headers)
+        path_parameters = {}
         param_matches = re.findall(r'\{(\w+)\}', resource_path)
         for param in param_matches:
-            integration_headers[f"integration.request.path.{param}"] = f"method.request.path.{param}"
+            path_parameters[f"integration.request.path.{param}"] = f"method.request.path.{param}"
         
-        # Agregar prefijo a los headers de integración
+        # Agregar prefijo solo a los headers de autorización
         prefixed_headers = {}
         for key, value in integration_headers.items():
             if not key.startswith('integration.request.header.'):
@@ -750,7 +753,12 @@ class APIGatewayManager:
             else:
                 prefixed_headers[key] = value
         
-        params_json = json.dumps(prefixed_headers).replace('"', '\\"')
+        # Combinar headers y path parameters
+        all_request_parameters = {}
+        all_request_parameters.update(prefixed_headers)  # Headers de auth
+        all_request_parameters.update(path_parameters)   # Path parameters
+        
+        params_json = json.dumps(all_request_parameters).replace('"', '\\"')
         
         # La URI de integración se arma con la RUTA COMPLETA DEL BACKEND
         full_backend_uri = f"{backend_host}{backend_path}"
