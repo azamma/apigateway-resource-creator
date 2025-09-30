@@ -44,16 +44,17 @@ python3 apiGatewayCreator.py
 3. **Configuración del endpoint**: Solo path y métodos HTTP
 4. **Creación múltiple**: Crea varios endpoints con la misma config
 
-#### **Opción 2: Configuración Manual** 
+#### **Opción 2: Configuración Manual**
 1. **Selección de API**: Elige de APIs agrupadas (excluye PROD automáticamente)
-2. **VPC Link**: Selecciona el VPC Link para conexión privada
-3. **Authorizer**: Elige el autorizador Cognito
-4. **User Pool**: Selecciona el Cognito User Pool
-5. **Stage**: Elige el stage y variables de entorno
-6. **Autorización**: Elige tipo de auth (ADMIN/CUSTOMER/NO_AUTH)
-7. **Guardar perfil**: Opción de guardar para reutilizar
-8. **Configuración de endpoints**: Path y métodos para cada endpoint
-9. **Bucle de creación**: Crea múltiples endpoints sin reiniciar
+2. **Authorizer**: Elige el autorizador Cognito
+3. **User Pool**: Selecciona el Cognito User Pool
+4. **Stage**: Elige el stage y variables de entorno
+5. **Variable de Stage para VPC Link**: Selecciona la variable que contiene el VPC Link ID
+6. **Variable de Stage para Host**: Selecciona la variable que contiene el host del backend
+7. **Autorización**: Elige tipo de auth (ADMIN/CUSTOMER/NO_AUTH)
+8. **Guardar perfil**: Opción de guardar para reutilizar
+9. **Configuración de endpoints**: Path y métodos para cada endpoint
+10. **Bucle de creación**: Crea múltiples endpoints sin reiniciar
 
 ### Ejemplo de Ejecución
 
@@ -73,7 +74,7 @@ python3 apiGatewayCreator.py
 
 🔍 Validando configuración cargada...
   ✅ API
-  ✅ VPC_LINK
+  ✅ VPC_LINK_VARIABLE
   ✅ AUTHORIZER
   ✅ COGNITO_POOL
 
@@ -112,16 +113,18 @@ Selecciona el tipo de autorización:
 
 Los perfiles permiten guardar y reutilizar configuraciones completas de APIs, incluyendo:
 
-- API ID y Connection ID
+- API ID
+- Nombre de la variable de stage para VPC Link
 - Authorizer ID y Cognito Pool
-- Backend Host y tipo de autorización
+- Backend Host (con variable de stage)
+- Tipo de autorización
 - Configuración de CORS
 
 ### Ejemplo de Perfil (`profiles/mi-api-dev.ini`):
 ```ini
 [PROFILE]
 api_id = yyrwhkxsz4
-connection_id = nc80u4
+connection_variable = vpcLinkId
 authorizer_id = wiyx5b
 cognito_pool = customer
 backend_host = https://${stageVariables.urlDiscountsPrivate}

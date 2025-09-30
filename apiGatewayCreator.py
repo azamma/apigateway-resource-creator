@@ -262,7 +262,7 @@ def save_configuration_profile(config: Dict[str, Any]) -> bool:
         profile_config = configparser.ConfigParser()
         profile_config['PROFILE'] = {
             'api_id': config['API_ID'],
-            'connection_id': config['CONNECTION_ID'], 
+            'connection_variable': config['CONNECTION_VARIABLE'],
             'authorizer_id': config['AUTHORIZER_ID'],
             'cognito_pool': config['COGNITO_POOL'],
             'backend_host': config['BACKEND_HOST'],
@@ -301,7 +301,7 @@ def load_configuration_profile(profile_name: str) -> Optional[Dict[str, Any]]:
         
         config = {
             'API_ID': profile_config['PROFILE']['api_id'],
-            'CONNECTION_ID': profile_config['PROFILE']['connection_id'],
+            'CONNECTION_VARIABLE': profile_config['PROFILE']['connection_variable'],
             'AUTHORIZER_ID': profile_config['PROFILE']['authorizer_id'],
             'COGNITO_POOL': profile_config['PROFILE']['cognito_pool'],
             'BACKEND_HOST': profile_config['PROFILE']['backend_host'],
@@ -322,29 +322,33 @@ def validate_configuration_profile(config: Dict[str, Any]) -> Dict[str, bool]:
     """Valida que los recursos de un perfil aún existan"""
     print("🔍 Validando configuración cargada...")
     validation_results = {}
-    
+
     # Validar API
     api_data = run_aws_command(f"aws apigateway get-rest-api --rest-api-id {config['API_ID']}")
     validation_results['API'] = api_data is not None
-    
-    # Validar VPC Link
-    vpc_links = run_aws_command("aws apigateway get-vpc-links")
-    validation_results['VPC_LINK'] = False
-    if vpc_links and 'items' in vpc_links:
-        validation_results['VPC_LINK'] = any(link['id'] == config['CONNECTION_ID'] for link in vpc_links['items'])
-    
+
+    # Validar que la stage variable existe
+    stages_data = run_aws_command(f"aws apigateway get-stages --rest-api-id {config['API_ID']}")
+    validation_results['VPC_LINK_VARIABLE'] = False
+    if stages_data and 'item' in stages_data:
+        for stage in stages_data['item']:
+            stage_vars = stage.get('variables', {})
+            if config['CONNECTION_VARIABLE'] in stage_vars:
+                validation_results['VPC_LINK_VARIABLE'] = True
+                break
+
     # Validar Authorizer
     authorizers = run_aws_command(f"aws apigateway get-authorizers --rest-api-id {config['API_ID']}")
     validation_results['AUTHORIZER'] = False
     if authorizers and 'items' in authorizers:
         validation_results['AUTHORIZER'] = any(auth['id'] == config['AUTHORIZER_ID'] for auth in authorizers['items'])
-    
+
     # Validar Cognito Pool
     pools = run_aws_command("aws cognito-idp list-user-pools --max-results 60")
     validation_results['COGNITO_POOL'] = False
     if pools and 'UserPools' in pools:
         validation_results['COGNITO_POOL'] = any(pool['Name'] == config['COGNITO_POOL'] for pool in pools['UserPools'])
-    
+
     return validation_results
 
 def select_configuration_source() -> Optional[Dict[str, Any]]:
@@ -421,7 +425,7 @@ def validate_and_confirm_profile(config: Dict[str, Any], profile_name: str) -> O
     print(f"\n" + "="*70)
     print(f"Resumen del Perfil '{profile_name}':")
     print(f"  - API ID: {config['API_ID']}")
-    print(f"  - Connection ID: {config['CONNECTION_ID']}")
+    print(f"  - Connection Variable: {config['CONNECTION_VARIABLE']}")
     print(f"  - Authorizer ID: {config['AUTHORIZER_ID']}")
     print(f"  - Cognito Pool: {config['COGNITO_POOL']}")
     print(f"  - Backend Host: {config['BACKEND_HOST']}")
@@ -477,33 +481,36 @@ def get_interactive_config() -> Optional[Dict[str, Any]]:
     api_id = select_api_grouped()
     if not api_id: return None
 
-    connection_id_data = run_aws_command("aws apigateway get-vpc-links")
-    if not connection_id_data or 'items' not in connection_id_data: return None
-    connection_id = select_from_menu("Selecciona el VPC Link:", connection_id_data['items'], return_key='id')
-    if not connection_id: return None
-
     authorizers_data = run_aws_command(f"aws apigateway get-authorizers --rest-api-id {api_id}")
     if not authorizers_data or 'items' not in authorizers_data: return None
     authorizer_id = select_from_menu("Selecciona el Authorizer:", authorizers_data['items'], return_key='id')
     if not authorizer_id: return None
-    
+
     user_pools_data = run_aws_command("aws cognito-idp list-user-pools --max-results 60")
     if not user_pools_data or 'UserPools' not in user_pools_data: return None
     cognito_pool = select_from_menu("Selecciona el Cognito User Pool:", user_pools_data['UserPools'], name_key='Name', return_key='Name')
     if not cognito_pool: return None
-    
+
     stages_data = run_aws_command(f"aws apigateway get-stages --rest-api-id {api_id}")
     if not stages_data or 'item' not in stages_data: return None
-    
+
     selected_stage = select_from_menu("Selecciona la Etapa (Stage) de la API:", stages_data['item'], name_key='stageName', return_key=None)
     if not selected_stage: return None
-    
+
     stage_variables = selected_stage.get('variables', {})
     if not stage_variables:
-        print(f"⚠️ La etapa '{selected_stage['stageName']}' no tiene variables definidas. Debes introducir el host manualmente.")
+        print(f"⚠️ La etapa '{selected_stage['stageName']}' no tiene variables definidas.")
+        connection_variable = input("Nombre de la variable de etapa para VPC Link (ej: vpcLinkId): ")
         backend_host = input("Host del backend (ej: https://mi.backend.com): ")
     else:
-        variable_name = select_from_menu("Selecciona la Variable de Etapa para el host:", list(stage_variables.keys()), name_key=None, return_key=None)
+        print("\n📋 Variables de etapa disponibles:")
+        for key, value in stage_variables.items():
+            print(f"  - {key}: {value}")
+
+        connection_variable = select_from_menu("Selecciona la Variable de Etapa para el VPC Link:", list(stage_variables.keys()), name_key=None, return_key=None)
+        if not connection_variable: return None
+
+        variable_name = select_from_menu("Selecciona la Variable de Etapa para el host del backend:", list(stage_variables.keys()), name_key=None, return_key=None)
         if not variable_name: return None
         backend_host = f"https://${{stageVariables.{variable_name}}}"
     
@@ -521,7 +528,7 @@ def get_interactive_config() -> Optional[Dict[str, Any]]:
 
     config = {
         "API_ID": api_id,
-        "CONNECTION_ID": connection_id,
+        "CONNECTION_VARIABLE": connection_variable,
         "AUTHORIZER_ID": authorizer_id,
         "FULL_BACKEND_PATH": full_backend_path,
         "COGNITO_POOL": cognito_pool,
@@ -552,9 +559,9 @@ def get_interactive_config() -> Optional[Dict[str, Any]]:
 # ===================================================================
 
 class APIGatewayManager:
-    def __init__(self, api_id: str, connection_id: str, authorizer_id: str, config_manager: ConfigManager):
+    def __init__(self, api_id: str, connection_variable: str, authorizer_id: str, config_manager: ConfigManager):
         self.api_id = api_id
-        self.connection_id = connection_id
+        self.connection_variable = connection_variable
         self.authorizer_id = authorizer_id
         self.config = config_manager
         
@@ -764,7 +771,10 @@ class APIGatewayManager:
         full_backend_uri = f"{backend_host}{backend_path}"
         print(f"🔗 Configurando URI de integración hacia: {full_backend_uri}")
         
-        integration_command = f"""aws apigateway put-integration --rest-api-id {self.api_id} --resource-id {resource_id} --http-method {http_method} --type {method_config['integration_type']} --integration-http-method {http_method} --uri "{full_backend_uri}" --connection-type {method_config['connection_type']} --connection-id {self.connection_id} --request-parameters "{params_json}" --passthrough-behavior {method_config['passthrough_behavior']} --timeout-in-millis {method_config['timeout_millis']}"""
+        # Usar stage variable para connection-id
+        connection_id_ref = f"${{stageVariables.{self.connection_variable}}}"
+
+        integration_command = f"""aws apigateway put-integration --rest-api-id {self.api_id} --resource-id {resource_id} --http-method {http_method} --type {method_config['integration_type']} --integration-http-method {http_method} --uri "{full_backend_uri}" --connection-type {method_config['connection_type']} --connection-id "{connection_id_ref}" --request-parameters "{params_json}" --passthrough-behavior {method_config['passthrough_behavior']} --timeout-in-millis {method_config['timeout_millis']}"""
         
         result = self.run_command(integration_command, f"Configurando integración {http_method}")
         if not result["success"]:
@@ -913,11 +923,11 @@ def main():
 
         # Extraer configuración base
         API_ID = base_config["API_ID"]
-        CONNECTION_ID = base_config["CONNECTION_ID"]
+        CONNECTION_VARIABLE = base_config["CONNECTION_VARIABLE"]
         AUTHORIZER_ID = base_config["AUTHORIZER_ID"]
-        
+
         # Crear manager con configuración base
-        manager = APIGatewayManager(API_ID, CONNECTION_ID, AUTHORIZER_ID, config_manager)
+        manager = APIGatewayManager(API_ID, CONNECTION_VARIABLE, AUTHORIZER_ID, config_manager)
         
         # Variables para controlar el flujo
         profile_saved = False
