@@ -12,35 +12,109 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 # ===================================================================
+# SECCIÓN 0: SISTEMA DE LOGGING CON COLORES
+# ===================================================================
+
+# Color codes for better log visibility
+class Colors:
+    RESET = '\033[0m'
+    INFO = '\033[0;36m'      # Cyan
+    SUCCESS = '\033[0;32m'   # Green
+    WARNING = '\033[0;33m'   # Yellow
+    ERROR = '\033[0;31m'     # Red
+    DEBUG = '\033[0;90m'     # Gray
+
+def log_info(msg: str):
+    """Log info message in cyan"""
+    print(f"{Colors.INFO}[INFO]{Colors.RESET} {msg}")
+
+def log_success(msg: str):
+    """Log success message in green"""
+    print(f"{Colors.SUCCESS}[SUCCESS]{Colors.RESET} {msg}")
+
+def log_warning(msg: str):
+    """Log warning message in yellow"""
+    print(f"{Colors.WARNING}[WARNING]{Colors.RESET} {msg}")
+
+def log_error(msg: str):
+    """Log error message in red"""
+    print(f"{Colors.ERROR}[ERROR]{Colors.RESET} {msg}")
+
+def log_debug(msg: str):
+    """Log debug message in gray"""
+    print(f"{Colors.DEBUG}[DEBUG]{Colors.RESET} {msg}")
+
+def log_section(title: str):
+    """Log section separator with title"""
+    print()
+    print(f"{Colors.INFO}{'═' * 70}{Colors.RESET}")
+    print(f"{Colors.INFO}  {title}{Colors.RESET}")
+    print(f"{Colors.INFO}{'═' * 70}{Colors.RESET}")
+
+def print_menu_header(title: str):
+    """Print a styled menu header"""
+    print(f"\n{Colors.INFO}┌{'─' * 68}┐{Colors.RESET}")
+    print(f"{Colors.INFO}│ {title:<67}│{Colors.RESET}")
+    print(f"{Colors.INFO}└{'─' * 68}┘{Colors.RESET}")
+
+def print_menu_option(number: int, text: str, emoji: str = "▸"):
+    """Print a styled menu option"""
+    print(f"  {Colors.SUCCESS}{emoji} {number}{Colors.RESET} - {text}")
+
+def print_summary_item(label: str, value: str, highlight: bool = False):
+    """Print a styled summary item"""
+    if highlight:
+        print(f"  {Colors.INFO}▸{Colors.RESET} {Colors.WARNING}{label}:{Colors.RESET} {Colors.SUCCESS}{value}{Colors.RESET}")
+    else:
+        print(f"  {Colors.INFO}▸{Colors.RESET} {label}: {Colors.DEBUG}{value}{Colors.RESET}")
+
+def print_box_message(message: str, style: str = "info"):
+    """Print a message in a box"""
+    color = {
+        "info": Colors.INFO,
+        "success": Colors.SUCCESS,
+        "warning": Colors.WARNING,
+        "error": Colors.ERROR
+    }.get(style, Colors.INFO)
+
+    lines = message.split('\n')
+    max_len = max(len(line) for line in lines)
+
+    print(f"\n{color}╔{'═' * (max_len + 2)}╗{Colors.RESET}")
+    for line in lines:
+        print(f"{color}║ {line:<{max_len}} ║{Colors.RESET}")
+    print(f"{color}╚{'═' * (max_len + 2)}╝{Colors.RESET}")
+
+# ===================================================================
 # SECCIÓN 1: CONFIGURACIÓN Y CARGA DE ARCHIVOS .INI
 # ===================================================================
 
-def log_error(error_msg: str, exception: Exception = None):
+def save_error_dump(error_msg: str, exception: Exception = None):
     """Guarda errores en un archivo de dump con timestamp"""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     error_file = Path(__file__).parent / f"error_dump_{timestamp}.log"
-    
+
     try:
         with open(error_file, 'w', encoding='utf-8') as f:
             f.write(f"=== ERROR DUMP - {datetime.datetime.now().isoformat()} ===\n\n")
             f.write(f"Error Message: {error_msg}\n\n")
-            
+
             if exception:
                 f.write(f"Exception Type: {type(exception).__name__}\n")
                 f.write(f"Exception Message: {str(exception)}\n\n")
                 f.write("Full Traceback:\n")
                 f.write(traceback.format_exc())
                 f.write("\n")
-            
+
             f.write("=== END ERROR DUMP ===\n")
-        
-        print(f"💾 Error guardado en: {error_file}")
-        
+
+        log_debug(f"Dump de error guardado en: {error_file}")
+
     except Exception as log_err:
-        print(f"❌ Error guardando log: {log_err}")
-        print(f"❌ Error original: {error_msg}")
+        log_error(f"Error al guardar dump de error: {log_err}")
+        log_error(f"Error original: {error_msg}")
         if exception:
-            print(f"❌ Excepción original: {exception}")
+            log_error(f"Excepción original: {exception}")
 
 class ConfigManager:
     def __init__(self, config_dir: str = "config"):
@@ -59,11 +133,11 @@ class ConfigManager:
             self.auth_headers.read(self.config_dir / "auth_headers.ini")
             self.cors_headers.read(self.config_dir / "cors_headers.ini")
             self.response_templates.read(self.config_dir / "response_templates.ini")
-            print("✅ Archivos de configuración cargados exitosamente")
+            log_success("Archivos de configuración cargados exitosamente")
         except Exception as e:
             error_msg = f"Error cargando configuraciones desde {self.config_dir}"
-            log_error(error_msg, e)
-            print(f"❌ {error_msg}: {e}")
+            save_error_dump(error_msg, e)
+            log_error(f"{error_msg}: {e}")
             sys.exit(1)
     
     def get_method_config(self, http_method: str) -> Dict[str, Any]:
@@ -100,19 +174,19 @@ def run_aws_command(command: str) -> Optional[Dict[str, Any]]:
         )
         if result.returncode != 0:
             error_msg = f"Error ejecutando comando AWS: {command}"
-            log_error(f"{error_msg}\nSTDERR: {result.stderr}\nSTDOUT: {result.stdout}")
-            print(f"❌ Error ejecutando el comando:\n{result.stderr}")
+            save_error_dump(f"{error_msg}\nSTDERR: {result.stderr}\nSTDOUT: {result.stdout}")
+            log_error(f"Error al ejecutar comando:\n{result.stderr}")
             return None
         return json.loads(result.stdout) if result.stdout.strip() else {}
     except json.JSONDecodeError as e:
         error_msg = f"Error parseando JSON del comando: {command}"
-        log_error(error_msg, e)
-        print(f"❌ Error parseando JSON: {e}")
+        save_error_dump(error_msg, e)
+        log_error(f"Error parseando JSON: {e}")
         return None
     except Exception as e:
         error_msg = f"Excepción inesperada ejecutando comando: {command}"
-        log_error(error_msg, e)
-        print(f"❌ Excepción inesperada: {e}")
+        save_error_dump(error_msg, e)
+        log_error(f"Excepción inesperada: {e}")
         return None
 
 def select_from_menu(prompt: str, items: List[Any], name_key: str = 'name', return_key: str = 'id') -> Optional[Any]:
@@ -121,33 +195,35 @@ def select_from_menu(prompt: str, items: List[Any], name_key: str = 'name', retu
     Si return_key es None, retorna el objeto entero.
     """
     if not items:
-        print(f"⚠️ No se encontraron items para '{prompt}'.")
+        log_warning(f"No se encontraron elementos para '{prompt}'")
         return None
-    
-    print(f"\n{prompt}")
+
+    print_menu_header(prompt)
     for i, item in enumerate(items):
         display_name = item.get(name_key, str(item)) if isinstance(item, dict) else str(item)
-        print(f"  {i + 1} - {display_name}")
-    
+        print_menu_option(i + 1, display_name)
+
     while True:
         try:
-            choice = int(input("Selecciona una opción: "))
+            choice = int(input(f"\n{Colors.WARNING}→{Colors.RESET} Selecciona una opción: "))
             if 1 <= choice <= len(items):
                 selected_item = items[choice - 1]
+                selected_display = selected_item.get(name_key, str(selected_item)) if isinstance(selected_item, dict) else str(selected_item)
+                log_success(f"Seleccionado: {selected_display}")
                 return selected_item if not return_key else selected_item.get(return_key)
             else:
-                print("❌ Opción inválida. Inténtalo de nuevo.")
+                log_error("Opción inválida. Inténtalo de nuevo.")
         except ValueError:
-            print("❌ Por favor, introduce un número.")
+            log_error("Por favor, introduce un número.")
 
 def select_api_grouped() -> Optional[str]:
     """Muestra un menú de APIs agrupadas por nombre base."""
-    print("🔄 Obteniendo listado de APIs...")
+    log_info("Obteniendo listado de APIs...")
     apis_data = run_aws_command("aws apigateway get-rest-apis")
     if not apis_data or 'items' not in apis_data: return None
 
     groups = {}
-    
+
     for api in apis_data['items']:
         name = api.get('name', '')
         if not name: continue
@@ -163,50 +239,54 @@ def select_api_grouped() -> Optional[str]:
         groups[base_name].append(api)
 
     sorted_group_names = sorted(groups.keys())
-    print("\nSelecciona el grupo de API:")
+    print_menu_header("Selecciona el grupo de API")
     for i, name in enumerate(sorted_group_names):
-        print(f"  {i + 1} - {name}")
+        print_menu_option(i + 1, name, emoji="📦")
 
     selected_group_name = None
     while True:
         try:
-            choice = int(input("Selecciona un grupo: "))
+            choice = int(input(f"\n{Colors.WARNING}→{Colors.RESET} Selecciona un grupo: "))
             if 1 <= choice <= len(sorted_group_names):
                 selected_group_name = sorted_group_names[choice - 1]
+                log_success(f"Grupo seleccionado: {selected_group_name}")
                 break
             else:
-                print("❌ Opción inválida. Inténtalo de nuevo.")
+                log_error("Opción inválida. Inténtalo de nuevo.")
         except ValueError:
-            print("❌ Por favor, introduce un número.")
+            log_error("Por favor, introduce un número.")
 
     apis_in_group = sorted(groups[selected_group_name], key=lambda x: x.get('name', ''))
-    
+
     if len(apis_in_group) == 1:
-        print(f"✅ Grupo con un solo miembro, seleccionando '{apis_in_group[0]['name']}' automáticamente.")
+        log_success(f"Grupo con un solo miembro, seleccionando automáticamente '{apis_in_group[0]['name']}'")
         return apis_in_group[0]['id']
-        
-    return select_from_menu("Selecciona la API específica del entorno:", apis_in_group, return_key='id')
+
+    return select_from_menu("🌐 Selecciona la API específica del entorno", apis_in_group, return_key='id')
 
 def select_http_methods() -> List[str]:
     """Permite seleccionar múltiples métodos HTTP"""
     available_methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
-    print("\nSelecciona los métodos HTTP a crear (separados por comas):")
+    method_emojis = {'GET': '📥', 'POST': '📤', 'PUT': '✏️', 'DELETE': '🗑️', 'PATCH': '🔧'}
+
+    print_menu_header("Selecciona los métodos HTTP a crear (separados por comas)")
     for i, method in enumerate(available_methods):
-        print(f"  {i + 1} - {method}")
-    
+        emoji = method_emojis.get(method, '▸')
+        print_menu_option(i + 1, method, emoji=emoji)
+
     while True:
         try:
-            choices = input("Ingresa los números separados por comas (ej: 1,2,3): ")
+            choices = input(f"\n{Colors.WARNING}→{Colors.RESET} Ingresa los números (ej: 1,2,3): ")
             indices = [int(x.strip()) - 1 for x in choices.split(',')]
-            
+
             if all(0 <= idx < len(available_methods) for idx in indices):
                 selected_methods = [available_methods[idx] for idx in indices]
-                print(f"✅ Métodos seleccionados: {', '.join(selected_methods)}")
+                log_success(f"Métodos seleccionados: {', '.join(selected_methods)}")
                 return selected_methods
             else:
-                print("❌ Alguna opción es inválida. Inténtalo de nuevo.")
+                log_error("Algunas opciones son inválidas. Inténtalo de nuevo.")
         except ValueError:
-            print("❌ Por favor, introduce números separados por comas.")
+            log_error("Por favor, introduce números separados por comas.")
 
 def select_auth_type() -> str:
     """Selecciona el tipo de autorización"""
@@ -216,20 +296,29 @@ def select_auth_type() -> str:
         'COGNITO_CUSTOMER': 'Para APIs de cliente (customer_id)',
         'NO_AUTH': 'Sin autorización (APIs públicas)'
     }
-    
-    print("\nSelecciona el tipo de autorización:")
+    auth_emojis = {
+        'COGNITO_ADMIN': '👤',
+        'COGNITO_CUSTOMER': '👥',
+        'NO_AUTH': '🔓'
+    }
+
+    print_menu_header("Selecciona el tipo de autorización")
     for i, auth_type in enumerate(auth_types):
-        print(f"  {i + 1} - {auth_type}: {descriptions[auth_type]}")
-    
+        emoji = auth_emojis.get(auth_type, '▸')
+        text = f"{auth_type}: {Colors.DEBUG}{descriptions[auth_type]}{Colors.RESET}"
+        print_menu_option(i + 1, text, emoji=emoji)
+
     while True:
         try:
-            choice = int(input("Selecciona el tipo de autorización: "))
+            choice = int(input(f"\n{Colors.WARNING}→{Colors.RESET} Selecciona el tipo de autorización: "))
             if 1 <= choice <= len(auth_types):
-                return auth_types[choice - 1]
+                selected = auth_types[choice - 1]
+                log_success(f"Tipo de autorización: {selected}")
+                return selected
             else:
-                print("❌ Opción inválida. Inténtalo de nuevo.")
+                log_error("Opción inválida. Inténtalo de nuevo.")
         except ValueError:
-            print("❌ Por favor, introduce un número.")
+            log_error("Por favor, introduce un número.")
 
 def select_cors_type() -> str:
     """Selecciona el tipo de CORS"""
@@ -250,14 +339,14 @@ def save_configuration_profile(config: Dict[str, Any]) -> bool:
     """Guarda un perfil de configuración en un archivo INI"""
     profiles_dir = Path(__file__).parent / "profiles"
     profiles_dir.mkdir(exist_ok=True)
-    
-    profile_name = input("\n📁 Introduce el nombre del perfil (sin extensión): ").strip()
+
+    profile_name = input("\nIntroduce el nombre del perfil (sin extensión): ").strip()
     if not profile_name:
-        print("❌ Nombre de perfil inválido")
+        log_error("Invalid profile name")
         return False
-    
+
     profile_file = profiles_dir / f"{profile_name}.ini"
-    
+
     try:
         profile_config = configparser.ConfigParser()
         profile_config['PROFILE'] = {
@@ -269,36 +358,36 @@ def save_configuration_profile(config: Dict[str, Any]) -> bool:
             'auth_type': config['AUTH_TYPE'],
             'cors_type': config['CORS_TYPE']
         }
-        
+
         with open(profile_file, 'w') as f:
             profile_config.write(f)
-        
-        print(f"✅ Perfil guardado como: {profile_file}")
+
+        log_success(f"Perfil guardado como: {profile_file}")
         return True
-        
+
     except Exception as e:
         error_msg = f"Error guardando perfil de configuración"
-        log_error(error_msg, e)
-        print(f"❌ {error_msg}: {e}")
+        save_error_dump(error_msg, e)
+        log_error(f"{error_msg}: {e}")
         return False
 
 def load_configuration_profile(profile_name: str) -> Optional[Dict[str, Any]]:
     """Carga un perfil de configuración desde archivo INI"""
     profiles_dir = Path(__file__).parent / "profiles"
     profile_file = profiles_dir / f"{profile_name}.ini"
-    
+
     if not profile_file.exists():
-        print(f"❌ Perfil {profile_name} no encontrado")
+        log_error(f"Perfil {profile_name} no encontrado")
         return None
-    
+
     try:
         profile_config = configparser.ConfigParser()
         profile_config.read(profile_file)
-        
+
         if 'PROFILE' not in profile_config:
-            print(f"❌ Archivo de perfil {profile_name} mal formateado")
+            log_error(f"Archivo de perfil {profile_name} mal formateado")
             return None
-        
+
         config = {
             'API_ID': profile_config['PROFILE']['api_id'],
             'CONNECTION_VARIABLE': profile_config['PROFILE']['connection_variable'],
@@ -308,26 +397,32 @@ def load_configuration_profile(profile_name: str) -> Optional[Dict[str, Any]]:
             'AUTH_TYPE': profile_config['PROFILE']['auth_type'],
             'CORS_TYPE': profile_config['PROFILE']['cors_type']
         }
-        
-        print(f"✅ Perfil {profile_name} cargado exitosamente")
+
+        log_success(f"Perfil {profile_name} cargado exitosamente")
         return config
-        
+
     except Exception as e:
         error_msg = f"Error cargando perfil {profile_name}"
-        log_error(error_msg, e)
-        print(f"❌ {error_msg}: {e}")
+        save_error_dump(error_msg, e)
+        log_error(f"{error_msg}: {e}")
         return None
 
 def validate_configuration_profile(config: Dict[str, Any]) -> Dict[str, bool]:
     """Valida que los recursos de un perfil aún existan"""
-    print("🔍 Validando configuración cargada...")
+    log_info("Validando configuración cargada...")
     validation_results = {}
 
     # Validar API
+    log_debug("Verificando API...")
     api_data = run_aws_command(f"aws apigateway get-rest-api --rest-api-id {config['API_ID']}")
     validation_results['API'] = api_data is not None
+    if validation_results['API']:
+        log_debug("  ✓ API encontrada")
+    else:
+        log_debug("  ✗ API no encontrada")
 
     # Validar que la stage variable existe
+    log_debug("Verificando variable de stage...")
     stages_data = run_aws_command(f"aws apigateway get-stages --rest-api-id {config['API_ID']}")
     validation_results['VPC_LINK_VARIABLE'] = False
     if stages_data and 'item' in stages_data:
@@ -336,67 +431,80 @@ def validate_configuration_profile(config: Dict[str, Any]) -> Dict[str, bool]:
             if config['CONNECTION_VARIABLE'] in stage_vars:
                 validation_results['VPC_LINK_VARIABLE'] = True
                 break
+    if validation_results['VPC_LINK_VARIABLE']:
+        log_debug("  ✓ Variable VPC Link encontrada")
+    else:
+        log_debug("  ✗ Variable VPC Link no encontrada")
 
     # Validar Authorizer
+    log_debug("Verificando Authorizer...")
     authorizers = run_aws_command(f"aws apigateway get-authorizers --rest-api-id {config['API_ID']}")
     validation_results['AUTHORIZER'] = False
     if authorizers and 'items' in authorizers:
         validation_results['AUTHORIZER'] = any(auth['id'] == config['AUTHORIZER_ID'] for auth in authorizers['items'])
+    if validation_results['AUTHORIZER']:
+        log_debug("  ✓ Authorizer encontrado")
+    else:
+        log_debug("  ✗ Authorizer no encontrado")
 
     # Validar Cognito Pool
+    log_debug("Verificando Cognito Pool...")
     pools = run_aws_command("aws cognito-idp list-user-pools --max-results 60")
     validation_results['COGNITO_POOL'] = False
     if pools and 'UserPools' in pools:
         validation_results['COGNITO_POOL'] = any(pool['Name'] == config['COGNITO_POOL'] for pool in pools['UserPools'])
+    if validation_results['COGNITO_POOL']:
+        log_debug("  ✓ Cognito Pool encontrado")
+    else:
+        log_debug("  ✗ Cognito Pool no encontrado")
 
     return validation_results
 
 def select_configuration_source() -> Optional[Dict[str, Any]]:
     """Permite elegir entre cargar perfil existente o crear nueva configuración"""
     profiles = list_configuration_profiles()
-    
-    print("\n🔧 ¿Cómo deseas configurar la API?")
-    
+
     if profiles:
-        print("  1 - Cargar perfil de configuración existente")
-        print("  2 - Crear nueva configuración")
-        
+        print_menu_header("¿Cómo deseas configurar la API?")
+        print_menu_option(1, "Cargar perfil de configuración existente", emoji="📂")
+        print_menu_option(2, "Crear nueva configuración", emoji="⚙️")
+
         while True:
             try:
-                choice = int(input("Selecciona una opción: "))
+                choice = int(input(f"\n{Colors.WARNING}→{Colors.RESET} Selecciona una opción: "))
                 if choice == 1:
                     return select_existing_profile(profiles)
                 elif choice == 2:
                     return get_interactive_config()
                 else:
-                    print("❌ Opción inválida. Inténtalo de nuevo.")
+                    log_error("Opción inválida. Inténtalo de nuevo.")
             except ValueError:
-                print("❌ Por favor, introduce un número.")
+                log_error("Por favor, introduce un número.")
     else:
-        print("  No se encontraron perfiles existentes.")
-        print("  Procediendo con configuración manual...")
+        log_warning("No se encontraron perfiles existentes")
+        log_info("Procediendo con configuración manual...")
         return get_interactive_config()
 
 def select_existing_profile(profiles: List[str]) -> Optional[Dict[str, Any]]:
     """Permite seleccionar un perfil existente de la lista"""
-    print("\n📋 Perfiles de configuración disponibles:")
+    print_menu_header("📋 Perfiles de configuración disponibles")
     for i, profile in enumerate(profiles):
-        print(f"  {i + 1} - {profile}")
-    
+        print_menu_option(i + 1, profile, emoji="📄")
+
     while True:
         try:
-            choice = int(input("Selecciona un perfil: "))
+            choice = int(input(f"\n{Colors.WARNING}→{Colors.RESET} Selecciona un perfil: "))
             if 1 <= choice <= len(profiles):
                 selected_profile = profiles[choice - 1]
                 config = load_configuration_profile(selected_profile)
-                
+
                 if config:
                     return validate_and_confirm_profile(config, selected_profile)
                 return None
             else:
-                print("❌ Opción inválida. Inténtalo de nuevo.")
+                log_error("Opción inválida. Inténtalo de nuevo.")
         except ValueError:
-            print("❌ Por favor, introduce un número.")
+            log_error("Por favor, introduce un número.")
 
 def validate_and_confirm_profile(config: Dict[str, Any], profile_name: str) -> Optional[Dict[str, Any]]:
     """Valida un perfil cargado y permite al usuario confirmarlo o modificarlo"""
@@ -404,72 +512,72 @@ def validate_and_confirm_profile(config: Dict[str, Any], profile_name: str) -> O
     validation_results = validate_configuration_profile(config)
     
     # Mostrar resumen de validación
-    print(f"\n📊 Validación del perfil '{profile_name}':")
+    print(f"\n{Colors.INFO}📊 Resultados de Validación para '{profile_name}':{Colors.RESET}")
     for resource, is_valid in validation_results.items():
-        status = "✅" if is_valid else "❌"
-        print(f"  {status} {resource}")
-    
+        if is_valid:
+            print(f"  {Colors.SUCCESS}✓{Colors.RESET} {resource}")
+        else:
+            print(f"  {Colors.ERROR}✗{Colors.RESET} {resource}")
+
     # Si hay errores, avisar
     invalid_resources = [k for k, v in validation_results.items() if not v]
     if invalid_resources:
-        print(f"\n⚠️ Los siguientes recursos no son válidos: {', '.join(invalid_resources)}")
-        print("   Necesitarás reconfigurar estos elementos.")
-        
-        retry = input("\n¿Deseas intentar reconfigurar manualmente? (s/n): ").lower()
+        print_box_message(f"Recursos inválidos: {', '.join(invalid_resources)}\nNecesitas reconfigurar estos elementos.", style="warning")
+
+        retry = input(f"\n{Colors.WARNING}→{Colors.RESET} ¿Deseas intentar reconfigurar manualmente? (s/n): ").lower()
         if retry == 's':
             return get_interactive_config()
         else:
             return None
-    
+
     # Mostrar resumen de la configuración
-    print(f"\n" + "="*70)
-    print(f"Resumen del Perfil '{profile_name}':")
-    print(f"  - API ID: {config['API_ID']}")
-    print(f"  - Connection Variable: {config['CONNECTION_VARIABLE']}")
-    print(f"  - Authorizer ID: {config['AUTHORIZER_ID']}")
-    print(f"  - Cognito Pool: {config['COGNITO_POOL']}")
-    print(f"  - Backend Host: {config['BACKEND_HOST']}")
-    print(f"  - Auth Type: {config['AUTH_TYPE']}")
-    print(f"  - CORS Type: {config['CORS_TYPE']}")
-    print("="*70)
-    
-    print("\n¿Qué deseas hacer?")
-    print("  1 - Continuar con esta configuración")
-    print("  2 - Seleccionar otro perfil")
-    print("  3 - Crear nueva configuración manualmente")
-    
+    log_section(f"RESUMEN DEL PERFIL: {profile_name}")
+    print_summary_item("API ID", config['API_ID'])
+    print_summary_item("Variable de Conexión", config['CONNECTION_VARIABLE'])
+    print_summary_item("ID de Authorizer", config['AUTHORIZER_ID'])
+    print_summary_item("Cognito Pool", config['COGNITO_POOL'])
+    print_summary_item("Host de Backend", config['BACKEND_HOST'], highlight=True)
+    print_summary_item("Tipo de Autorización", config['AUTH_TYPE'])
+    print_summary_item("Tipo de CORS", config['CORS_TYPE'])
+
+    print_menu_header("¿Qué deseas hacer?")
+    print_menu_option(1, "Continuar con esta configuración", emoji="✅")
+    print_menu_option(2, "Seleccionar otro perfil", emoji="🔄")
+    print_menu_option(3, "Crear nueva configuración manualmente", emoji="⚙️")
+
     while True:
         try:
-            choice = int(input("Selecciona una opción: "))
+            choice = int(input(f"\n{Colors.WARNING}→{Colors.RESET} Selecciona una opción: "))
             if choice == 1:
+                log_success("Continuando con esta configuración")
                 return config
             elif choice == 2:
                 profiles = list_configuration_profiles()
-                return select_existing_profile(profiles) 
+                return select_existing_profile(profiles)
             elif choice == 3:
                 return get_interactive_config()
             else:
-                print("❌ Opción inválida. Inténtalo de nuevo.")
+                log_error("Opción inválida. Inténtalo de nuevo.")
         except ValueError:
-            print("❌ Por favor, introduce un número.")
+            log_error("Por favor, introduce un número.")
 
 def get_endpoint_and_methods(reuse_methods: List[str] = None) -> Optional[Dict[str, Any]]:
     """Solicita solo el endpoint y opcionalmente métodos para usar con configuración existente"""
-    print("\n🛠️ Configuración del endpoint:")
-    
+    log_section("CONFIGURACIÓN DEL ENDPOINT")
+
     # Si es el primer endpoint o el usuario quiere cambiar métodos
     if reuse_methods is None:
         http_methods = select_http_methods()
     else:
-        print(f"📋 Reutilizando métodos de la configuración base: {', '.join(reuse_methods)}")
-        change_methods = input("¿Deseas cambiar los métodos para este endpoint? (s/n): ").lower()
+        log_info(f"📋 Reutilizando métodos base: {', '.join(reuse_methods)}")
+        change_methods = input(f"{Colors.WARNING}→{Colors.RESET} ¿Deseas cambiar los métodos para este endpoint? (s/n): ").lower()
         if change_methods == 's':
             http_methods = select_http_methods()
         else:
             http_methods = reuse_methods
-    
-    print("\nPor favor, introduce el siguiente valor:")
-    full_backend_path = input("Path COMPLETO del backend (ej: /discounts/b2c/campaigns/{id}): ")
+
+    print(f"\n{Colors.INFO}Por favor, introduce el siguiente valor:{Colors.RESET}")
+    full_backend_path = input(f"{Colors.WARNING}→{Colors.RESET} Path COMPLETO del backend (ej: /discounts/b2c/campaigns/{{id}}): ")
     
     return {
         "HTTP_METHODS": http_methods,
@@ -538,20 +646,23 @@ def get_interactive_config() -> Optional[Dict[str, Any]]:
         "CORS_TYPE": cors_type
     }
     
-    print("\n" + "="*70)
-    print("Resumen de la Configuración:")
-    for key, value in config.items():
-        if key == "HTTP_METHODS":
-            print(f"  - {key}: {', '.join(value)}")
-        else:
-            print(f"  - {key}: {value}")
-    print("="*70)
-    
-    confirm = input("\n¿La configuración es correcta? (s/n): ").lower()
+    log_section("RESUMEN DE LA CONFIGURACIÓN")
+    print_summary_item("API ID", config["API_ID"])
+    print_summary_item("Variable de Conexión", config["CONNECTION_VARIABLE"])
+    print_summary_item("ID de Authorizer", config["AUTHORIZER_ID"])
+    print_summary_item("Cognito Pool", config["COGNITO_POOL"])
+    print_summary_item("Host de Backend", config["BACKEND_HOST"], highlight=True)
+    print_summary_item("Path de Backend", config["FULL_BACKEND_PATH"], highlight=True)
+    print_summary_item("Métodos HTTP", ', '.join(config["HTTP_METHODS"]), highlight=True)
+    print_summary_item("Tipo de Autorización", config["AUTH_TYPE"])
+    print_summary_item("Tipo de CORS", config["CORS_TYPE"])
+
+    confirm = input(f"\n{Colors.WARNING}→{Colors.RESET} ¿La configuración es correcta? (s/n): ").lower()
     if confirm == 's':
+        log_success("Configuración confirmada")
         return config
     else:
-        print("Operación cancelada.")
+        log_warning("Operación cancelada")
         return None
 
 # ===================================================================
@@ -566,34 +677,34 @@ class APIGatewayManager:
         self.config = config_manager
         
     def run_command(self, command: str, description: str, ignore_conflict: bool = False) -> Dict:
-        print(f"🔄 {description}...")
-        
+        log_info(f"{description}...")
+
         try:
             result = subprocess.run(command, shell=True, capture_output=True, text=True, check=False)
-            
+
             if result.returncode == 0:
-                print(f"✅ {description} - Exitoso")
+                log_success(description)
                 response = json.loads(result.stdout) if result.stdout.strip() else {}
                 return {"success": True, "data": response}
             else:
                 if ignore_conflict and "ConflictException" in result.stderr:
-                    print(f"⚠️ {description} - Ya existe, continuando...")
+                    log_warning(f"{description} - Ya existe, continuando...")
                     return {"success": True, "data": {}, "existed": True}
                 else:
                     error_msg = f"Error en {description} - Comando: {command}"
-                    log_error(f"{error_msg}\nSTDERR: {result.stderr}\nSTDOUT: {result.stdout}")
-                    print(f"❌ {description} - Error: {result.stderr}")
+                    save_error_dump(f"{error_msg}\nSTDERR: {result.stderr}\nSTDOUT: {result.stdout}")
+                    log_error(f"{description} - Error: {result.stderr}")
                     return {"success": False, "error": result.stderr}
-                    
+
         except json.JSONDecodeError as e:
             error_msg = f"Error parseando JSON en {description} - Comando: {command}"
-            log_error(error_msg, e)
-            print(f"❌ Error parseando JSON en {description}")
+            save_error_dump(error_msg, e)
+            log_error(f"Error parseando JSON en {description}")
             return {"success": False, "error": "JSON parse error"}
         except Exception as e:
             error_msg = f"Excepción en {description} - Comando: {command}"
-            log_error(error_msg, e)
-            print(f"❌ Excepción en {description}: {e}")
+            save_error_dump(error_msg, e)
+            log_error(f"Excepción en {description}: {e}")
             return {"success": False, "error": str(e)}
     
     def get_root_resource_id(self) -> Optional[str]:
@@ -631,60 +742,60 @@ class APIGatewayManager:
     def find_resource_by_path(self, target_path: str) -> Optional[str]:
         command = f"aws apigateway get-resources --rest-api-id {self.api_id}"
         result = self.run_command(command, f"Buscando recurso para path: {target_path}")
-        
+
         if result["success"]:
             resources = result["data"].get("items", [])
             resource = next((r for r in resources if r["path"] == target_path), None)
             if resource:
-                print(f"✅ Recurso encontrado: {resource['id']} -> {target_path}")
+                log_debug(f"  ✓ Recurso encontrado: {resource['id']} -> {target_path}")
                 return resource["id"]
         return None
-    
+
     def create_resource(self, parent_id: str, path_part: str) -> Optional[str]:
         command = f"""aws apigateway create-resource --rest-api-id {self.api_id} --parent-id {parent_id} --path-part {path_part}"""
         result = self.run_command(command, f"Creando recurso: {path_part}")
-        
+
         if result["success"]:
             resource_id = result["data"]["id"]
-            print(f"✅ Recurso creado: {resource_id} -> {path_part}")
+            log_debug(f"  ✓ Recurso creado: {resource_id} -> {path_part}")
             return resource_id
         return None
     
     def ensure_resources_exist(self, uri_path: str) -> Optional[str]:
         """Asegura que todos los recursos existan, pidiendo confirmación antes de crear."""
         path_parts = self.parse_uri_path(uri_path)
-        
+
         if not path_parts:
             return self.get_root_resource_id()
-        
-        print(f"📍 Analizando path de API Gateway: {uri_path}")
-        print(f"📋 Segmentos a crear: {[p['segment'] for p in path_parts]}")
-        
+
+        log_info(f"Analizando path de API Gateway: {uri_path}")
+        log_debug(f"Segmentos a crear: {[p['segment'] for p in path_parts]}")
+
         parent_id = self.get_root_resource_id()
         final_resource_id = parent_id
-        
+
         for i, part in enumerate(path_parts):
             existing_id = self.find_resource_by_path(part["path"])
-            
+
             if existing_id:
                 final_resource_id = existing_id
                 parent_id = existing_id
             else:
-                prompt = f"\n⚠️  El recurso '{part['segment']}' no existe. ¿Desea crearlo? (s/n): "
+                prompt = f"\nEl recurso '{part['segment']}' no existe. ¿Crearlo? (s/n): "
                 confirm = input(prompt).lower()
-                
+
                 if confirm != 's':
-                    print("❌ Creación cancelada por el usuario.")
+                    log_warning("Creación cancelada por el usuario")
                     return None
-                
+
                 new_id = self.create_resource(parent_id, part["segment"])
                 if new_id:
-                    print(f"➕ Configurando método OPTIONS por defecto para el nuevo recurso: {part['segment']}")
+                    log_info(f"  ➕ Configurando método OPTIONS por defecto para nuevo recurso: {part['segment']}")
                     self.create_options_method(new_id, "DEFAULT")
                     final_resource_id = new_id
                     parent_id = new_id
                 else:
-                    print(f"❌ Error creando recurso para {part['segment']}")
+                    log_error(f"Error creando recurso para {part['segment']}")
                     return None
         return final_resource_id
     
@@ -710,7 +821,7 @@ class APIGatewayManager:
             authorizer_id = self.authorizer_id
             
         if not authorizer_id and authorization_type == "COGNITO_USER_POOLS":
-            print(f"❌ No se ha especificado un ID de autorizador para {http_method}.")
+            log_error(f"No se ha especificado ID de autorizador para {http_method}")
             return False
 
         # Los parámetros se extraen de la RUTA DE RECURSOS
@@ -769,7 +880,7 @@ class APIGatewayManager:
         
         # La URI de integración se arma con la RUTA COMPLETA DEL BACKEND
         full_backend_uri = f"{backend_host}{backend_path}"
-        print(f"🔗 Configurando URI de integración hacia: {full_backend_uri}")
+        log_debug(f"  🔗 URI de Integración: {full_backend_uri}")
         
         # Usar stage variable para connection-id
         connection_id_ref = f"${{stageVariables.{self.connection_variable}}}"
@@ -849,7 +960,7 @@ def create_endpoint_workflow(manager: APIGatewayManager, base_config: Dict[str, 
     """Flujo completo de creación de un endpoint"""
     FULL_BACKEND_PATH = endpoint_config["FULL_BACKEND_PATH"]
     HTTP_METHODS = endpoint_config["HTTP_METHODS"]
-    
+
     # Separación de rutas
     path_parts = FULL_BACKEND_PATH.strip("/").split("/")
     if len(path_parts) > 1:
@@ -857,62 +968,61 @@ def create_endpoint_workflow(manager: APIGatewayManager, base_config: Dict[str, 
     else:
         api_resource_path = FULL_BACKEND_PATH
 
-    print(f"   -> Ruta de API Gateway a crear: {api_resource_path}")
-    print(f"   -> Ruta de Backend a integrar: {FULL_BACKEND_PATH}")
-    print(f"   -> Métodos HTTP a crear: {', '.join(HTTP_METHODS)}")
-    print(f"   -> Tipo de autorización: {base_config['AUTH_TYPE']}")
+    log_info(f"   → Path de API Gateway: {api_resource_path}")
+    log_info(f"   → Path de integración Backend: {FULL_BACKEND_PATH}")
+    log_info(f"   → Métodos HTTP: {', '.join(HTTP_METHODS)}")
+    log_info(f"   → Tipo de autorización: {base_config['AUTH_TYPE']}")
     print("=" * 70)
 
     # Crear recursos necesarios
     final_resource_id = manager.ensure_resources_exist(api_resource_path)
     if not final_resource_id:
-        print("❌ No se pudo crear el recurso.")
+        log_error("No se pudo crear el recurso")
         return False
-    
-    print(f"✅ Recurso final ID: {final_resource_id}")
-    
+
+    log_success(f"ID de recurso final: {final_resource_id}")
+
     # Crear métodos HTTP seleccionados
     success_count = 0
     for http_method in HTTP_METHODS:
-        print(f"\n🔧 Configurando método {http_method}...")
+        log_info(f"Configurando método {http_method}...")
         method_success = manager.create_http_method(
-            final_resource_id, 
-            http_method, 
-            api_resource_path, 
-            FULL_BACKEND_PATH, 
-            base_config["BACKEND_HOST"], 
+            final_resource_id,
+            http_method,
+            api_resource_path,
+            FULL_BACKEND_PATH,
+            base_config["BACKEND_HOST"],
             base_config["AUTH_TYPE"],
             base_config["COGNITO_POOL"]
         )
-        
+
         if method_success:
-            print(f"✅ Método {http_method} configurado correctamente")
+            log_success(f"Método {http_method} configurado exitosamente")
             success_count += 1
         else:
-            print(f"❌ Error configurando método {http_method}")
+            log_error(f"Error configurando método {http_method}")
 
     # Configurar OPTIONS (CORS)
-    print(f"\n🔧 Configurando método OPTIONS (CORS)...")
+    log_info("Configurando método OPTIONS (CORS)...")
     options_success = manager.create_options_method(final_resource_id, base_config["CORS_TYPE"])
     if options_success:
-        print("✅ Método OPTIONS (CORS) configurado correctamente")
+        log_success("Método OPTIONS (CORS) configurado exitosamente")
     else:
-        print("⚠️ Warning: Error configurando OPTIONS.")
-    
-    print(f"\n🔍 Verificando integraciones finales...")
+        log_warning("Error configurando OPTIONS")
+
+    log_info("Verificando integraciones finales...")
     if manager.verify_methods_integration(final_resource_id, HTTP_METHODS):
-        print(f"🎉 ¡Endpoint configurado exitosamente!")
-        print(f"✅ {success_count}/{len(HTTP_METHODS)} métodos creados correctamente")
+        log_section("ENDPOINT CREADO EXITOSAMENTE")
+        log_success(f"{success_count}/{len(HTTP_METHODS)} métodos creados exitosamente")
         return True
     else:
-        print("❌ Error verificando integraciones del recurso creado")
+        log_error("Error verificando integraciones del recurso")
         return False
 
 def main():
     try:
-        print("🚀 API Gateway Multi-Method Creator by Zamma 🚀")
-        print("=" * 70)
-        
+        log_section("API GATEWAY MULTI-METHOD CREATOR by Zamma")
+
         # Inicializar gestor de configuraciones
         config_manager = ConfigManager()
         
@@ -936,7 +1046,7 @@ def main():
         
         # Bucle principal para crear múltiples endpoints
         while True:
-            print("\n" + "="*70)
+            log_section("CONFIGURACIÓN DE NUEVO ENDPOINT")
             
             # Obtener configuración del endpoint
             if first_endpoint:
@@ -976,18 +1086,19 @@ def main():
             if create_another != 's':
                 break
         
-        print("\n🏁 Proceso completado. ¡Gracias por usar API Gateway Creator!")
-            
+        log_section("PROCESO COMPLETADO")
+        log_success("¡Gracias por usar API Gateway Creator!")
+
     except KeyboardInterrupt:
         error_msg = "Proceso interrumpido por el usuario (Ctrl+C)"
-        log_error(error_msg)
-        print(f"\n⚠️ {error_msg}")
+        save_error_dump(error_msg)
+        log_warning(error_msg)
         sys.exit(1)
     except Exception as e:
         error_msg = "Error inesperado en función principal"
-        log_error(error_msg, e)
-        print(f"\n❌ {error_msg}: {e}")
-        print("💾 Revisa el archivo de error dump para más detalles.")
+        save_error_dump(error_msg, e)
+        log_error(f"{error_msg}: {e}")
+        log_info("Revisa el archivo de dump de error para más detalles")
         sys.exit(1)
 
 if __name__ == "__main__":

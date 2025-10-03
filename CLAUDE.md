@@ -12,7 +12,7 @@ Python-based AWS API Gateway resource creation tool for automating HTTP method s
 python3 apiGatewayCreator.py
 ```
 
-The script is interactive - no command-line arguments needed. It will guide you through configuration.
+The script is interactive - no command-line arguments needed. It will guide you through configuration. Requires AWS CLI configured with appropriate credentials and region.
 
 ## Architecture
 
@@ -42,18 +42,21 @@ This separation is implemented in `create_endpoint_workflow()` (lines 838-899). 
 
 ### Configuration Flow
 
-Two configuration modes (handled in `select_configuration_source()`, lines 350-374):
+Two configuration modes (handled in `select_configuration_source()`, lines 354-378):
 
 **Profile Mode**: Load saved `.ini` files from `profiles/` directory
-- Validates resources still exist before use (`validate_configuration_profile()`, lines 321-348)
-- Checks API, VPC Link, Authorizer, and Cognito Pool validity
+- Validates resources still exist before use (`validate_configuration_profile()`, lines 321-352)
+- Checks API, Stage Variable (VPC Link), Authorizer, and Cognito Pool validity
 - Reuses HTTP methods across multiple endpoints
+- Allows user to retry with manual configuration if validation fails
 
-**Manual Mode**: Interactive selection via `get_interactive_config()` (lines 475-548)
-- Groups APIs by base name, excluding PROD by default
-- Selects VPC Link, Authorizer, User Pool, Stage
+**Manual Mode**: Interactive selection via `get_interactive_config()` (lines 479-555)
+- Groups APIs by base name using `select_api_grouped()` (line 143)
+- Excludes PROD environment by default unless explicitly selected
+- Selects Stage and stage variables for VPC Link and backend host
+- Selects Authorizer, User Pool
 - Configures authorization type (ADMIN/CUSTOMER/NO_AUTH)
-- Option to save as profile for reuse
+- Option to save as profile for reuse after first successful endpoint creation
 
 ### Authorization Types
 
@@ -80,12 +83,13 @@ Example profile structure: `profiles/dev-customer-get.ini`
 
 ### Resource Creation Logic
 
-`ensure_resources_exist()` (lines 646-682):
-- Parses nested paths into segments
-- Checks each segment exists before creating
-- Prompts for confirmation before creating new resources
-- Automatically creates OPTIONS method for new resources
+`ensure_resources_exist()` (lines 653-689):
+- Parses nested paths into segments using `parse_uri_path()` (line 610)
+- Checks each segment exists before creating using `find_resource_by_path()` (line 631)
+- Prompts for user confirmation before creating new resources
+- Automatically creates OPTIONS method for new resources (line 682-683)
 - Handles parameterized segments (e.g., `{id}`, `{customerId}`)
+- Returns None if user cancels creation
 
 ### Error Handling
 
@@ -128,10 +132,11 @@ Note: `connection_variable` should be the name of the stage variable containing 
 
 ## Multi-Endpoint Creation
 
-Main loop (lines 927-967) allows creating multiple endpoints without restarting:
-- First endpoint: configure methods + path
-- Subsequent endpoints: reuse methods, only specify new path
-- Option to save profile after first successful creation
+Main loop (lines 938-977) allows creating multiple endpoints without restarting:
+- First endpoint: configure methods + path (or load from profile/manual config)
+- Subsequent endpoints: reuse methods by default, option to change per endpoint
+- Option to save profile after first successful creation (lines 968-972)
+- User can exit loop by answering 'n' to continue prompt
 
 ## AWS CLI Usage
 
@@ -143,9 +148,24 @@ Requires AWS CLI configured with appropriate credentials and region.
 
 ## Key Functions Reference
 
-- `select_api_grouped()` (line 143): Groups APIs by name, filters environments
-- `select_http_methods()` (line 190): Multi-select interface for HTTP methods
-- `parse_uri_path()` (line 603): Parses paths into segments, identifies parameters
-- `create_http_method()` (line 691): Complete method creation with auth + integration
-- `create_options_method()` (line 784): CORS preflight configuration
-- `create_endpoint_workflow()` (line 838): Orchestrates full endpoint creation
+- `log_error()` (line 18): Saves detailed error dumps with timestamp to `error_dump_*.log` files
+- `select_api_grouped()` (line 143): Groups APIs by name, filters PROD environment by default
+- `select_http_methods()` (line 190): Multi-select interface for HTTP methods (comma-separated)
+- `select_auth_type()` (line 211): Interactive menu for authorization type selection
+- `list_configuration_profiles()` (line 238): Lists available `.ini` profiles from `profiles/` directory
+- `save_configuration_profile()` (line 249): Saves current config to `profiles/<name>.ini`
+- `load_configuration_profile()` (line 285): Loads profile from file
+- `validate_configuration_profile()` (line 321): Validates all resources in loaded profile still exist
+- `select_configuration_source()` (line 354): Main entry point for profile vs manual selection
+- `get_endpoint_and_methods()` (line 456): Prompts for endpoint config, optionally reuses methods
+- `get_interactive_config()` (line 479): Full manual configuration flow
+- `parse_uri_path()` (line 610): Parses paths into segments, identifies parameters
+- `find_resource_by_path()` (line 631): Searches for existing resource by path
+- `create_resource()` (line 643): Creates single API Gateway resource
+- `ensure_resources_exist()` (line 653): Creates full path hierarchy with user confirmation
+- `extract_path_parameters()` (line 691): Extracts `{param}` placeholders from paths
+- `create_http_method()` (line 698): Complete method creation with auth + integration
+- `create_options_method()` (line 794): CORS preflight configuration
+- `verify_methods_integration()` (line 833): Verifies all method integrations were created
+- `create_endpoint_workflow()` (line 848): Orchestrates full endpoint creation
+- `main()` (line 911): Main entry point with loop for multiple endpoint creation
