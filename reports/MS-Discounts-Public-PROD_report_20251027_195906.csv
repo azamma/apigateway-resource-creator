@@ -1,0 +1,92 @@
+api,method,path,is_authorized,authorization_type,specific_auth_type,authorizer_name
+MS-Discounts-Public-PROD,POST,/customer/rewards/valid-cash-wallet,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/customer/referral/remove,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/customer/referral-info/{customerId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,PUT,/bo/campaigns/campaign-active,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,PUT,/external/promotion/add-mail/{promocode},NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/customer/referral/double-check,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/customer/referral,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/iuse/customers/{customerId}/referral-info,NO,NONE,NONE,
+MS-Discounts-Public-PROD,DELETE,/bo/rewards/{rewardId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,GET,/admin/promotion,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/bo/dashboard-cx/promoter/missions/{customerId},YES,CUSTOM,CUSTOM (ADMIN),AdminLambda
+MS-Discounts-Public-PROD,DELETE,/bo/rewards/mission/{missionId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/customer/referral/use,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/b2c/campaigns/referral,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,POST,/admin/promotion,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/customer/promotion/check,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/bo/gamification-badge,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/b2c/missions/customer-referred/progress,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,POST,/customer/referral/notify,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/b2b/customers,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/admin/referral/referrer,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/external/referral/reassign,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/customer/rewards,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/b2b/promotions/check,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS,Company
+MS-Discounts-Public-PROD,POST,/admin/promotion/revert,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/customer/promotion/check-b2b,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/customer/referral/reward,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/bo/rewards,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/bo/gamification/search,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/customer/rewards,NO,NONE,NONE,
+MS-Discounts-Public-PROD,PATCH,/bo/campaigns/status/{campaignId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/customer/promotion/revert,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/b2c/customers,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/bo/campaigns,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,GET,/bo/campaign-types/{id},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,GET,/admin/promotion/{promotionId},YES,CUSTOM,CUSTOM (ADMIN),AdminLambda
+MS-Discounts-Public-PROD,GET,/b2c/campaigns/promoter,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/bo/dashboard-cx/promoter,YES,CUSTOM,CUSTOM (ADMIN),AdminLambda
+MS-Discounts-Public-PROD,POST,/bo/campaigns,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,GET,/b2c/campaigns/promoter/invitation-stats,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/bo/campaigns/{campaignId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/customer/referral/generate,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/admin/reward,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/webhooks/iterable/campaigns,YES,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/admin/referral/revert/cron,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/b2c/campaigns/{campaignId}/missions,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/b2c/missions/progress/{campaignId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/bo/campaign-types,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/customer/referral/revert,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/admin/reward,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/bo/campaign-types,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/admin/reward/valid-cash-wallet,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/customer/rewards/next-expire,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/b2c/missions/campaign/{campaignId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,DELETE,/bo/gamification/{id},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,ANY,/admin/referral/campaign,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/admin/referral/increment,NO,NONE,NONE,
+MS-Discounts-Public-PROD,PUT,/bo/campaign-types,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,GET,/admin/reward/all-cash-wallet,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/external/referral/coupon,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/admin/promotion/{promotionId}/route,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/customer/referral/update,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/bo/gamification,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/b2c/campaigns/assign-referral-manual,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/customer/promotion/{promoCode},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,POST,/admin/reward/notification-mass-payment,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/b2c/campaigns/{campaignId}/missions/progress,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,PATCH,/customer/promotion,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/bo/gamification,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,GET,/bo/logs/{campaignId},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/admin/referral/program,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/iuse,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/bo/gamification/associate,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,POST,/b2c/campaigns/assignment,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/external/info/{customerId},NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/admin/reward/promo,YES,CUSTOM,CUSTOM (ADMIN),AdminLambda
+MS-Discounts-Public-PROD,GET,/admin/referral/attribute,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/b2c/campaigns,YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (CUSTOMER),CustomerPROD
+MS-Discounts-Public-PROD,GET,/bo/iterable/lists,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/admin/referral/revert,NO,NONE,NONE,
+MS-Discounts-Public-PROD,DELETE,/admin/referral/campaign-attribute/{campaignAttributeId},NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/customer/referral/referrer,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/admin/promotion/revert/cron,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/admin/referral/logs/{customerId},NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/admin/referral,YES,CUSTOM,CUSTOM (ADMIN),AdminLambda
+MS-Discounts-Public-PROD,POST,/customer/promotion/double-check,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/customer/rewards/all-cash-wallet,NO,NONE,NONE,
+MS-Discounts-Public-PROD,GET,/bo/campaign-types/name/{name},YES,COGNITO_USER_POOLS,COGNITO_USER_POOLS (ADMIN),AdminProd
+MS-Discounts-Public-PROD,GET,/customer/rewards/benefits,NO,NONE,NONE,
+MS-Discounts-Public-PROD,POST,/customer/promotion/use,NO,NONE,NONE,
