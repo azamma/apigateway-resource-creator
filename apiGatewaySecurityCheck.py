@@ -19,6 +19,7 @@ import sys
 import os
 import csv
 import datetime
+import re
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -395,6 +396,62 @@ def get_authorizer_details(api_id: str, authorizer_id: str) -> Optional[Dict]:
 # SECCIÓN 2: FILTRADO DE APIs Y MÉTODOS
 # ===================================================================
 
+def load_whitelist() -> Dict[str, List[str]]:
+    """
+    Load the endpoint whitelist from config/whitelist.json.
+
+    Returns:
+        Dictionary with API names as keys and endpoint lists as values.
+        Empty dict if file doesn't exist or has errors.
+    """
+    try:
+        whitelist_file = Path(__file__).parent / "config" / "whitelist.json"
+        if not whitelist_file.exists():
+            return {}
+
+        with open(whitelist_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get('whitelist', {})
+    except Exception as e:
+        log_warning(f"Failed to load whitelist: {str(e)}")
+        return {}
+
+
+def is_endpoint_whitelisted(api_name: str, path: str, whitelist: Dict[str, List[str]]) -> bool:
+    """
+    Check if an endpoint is in the whitelist.
+
+    Supports simple wildcard patterns (e.g., /users/*/profile).
+
+    Args:
+        api_name: Name of the API.
+        path: Resource path (e.g., /users/123/profile).
+        whitelist: Whitelist dictionary.
+
+    Returns:
+        True if endpoint is whitelisted, False otherwise.
+    """
+    if api_name not in whitelist:
+        return False
+
+    whitelisted_endpoints = whitelist[api_name]
+
+    for endpoint_pattern in whitelisted_endpoints:
+        # Exact match
+        if path == endpoint_pattern:
+            return True
+
+        # Wildcard pattern matching (simple)
+        if '*' in endpoint_pattern:
+            # Convert pattern to regex: /users/*/profile -> /users/.+/profile
+            regex_pattern = endpoint_pattern.replace('*', '.+')
+            regex_pattern = f"^{regex_pattern}$"
+            if re.match(regex_pattern, path):
+                return True
+
+    return False
+
+
 def filter_apis_by_suffix(apis: List[Dict]) -> List[Dict]:
     """
     Filter out APIs with -DEV or -CI suffixes.
@@ -435,12 +492,14 @@ def analyze_resource_methods(
     path: str,
     report_file: Optional[Path] = None,
     api_name: Optional[str] = None,
-    authorizer_cache: Optional[Dict[str, Dict]] = None
+    authorizer_cache: Optional[Dict[str, Dict]] = None,
+    whitelist: Optional[Dict[str, List[str]]] = None
 ) -> Dict:
     """
     Analyze methods for a resource sequentially.
 
     Helper function for analyzing individual resources.
+    Skips endpoints that are whitelisted.
 
     Args:
         api_id: API ID.
@@ -449,6 +508,7 @@ def analyze_resource_methods(
         report_file: Path to report file (optional).
         api_name: API name for reporting (optional).
         authorizer_cache: Cache of authorizer details.
+        whitelist: Whitelist dictionary for excluding endpoints (optional).
 
     Returns:
         Dictionary with resource analysis result.
@@ -503,8 +563,14 @@ def analyze_resource_methods(
 
         result_methods.append(method_auth)
 
-        # Update report in real-time
+        # Update report in real-time (include whitelisted status)
         if report_file and api_name:
+            is_whitelisted = (
+                whitelist and
+                is_endpoint_whitelisted(api_name, path, whitelist)
+            )
+            # Pass whitelisted status to report
+            method_auth['whitelisted'] = is_whitelisted
             update_report_file(report_file, api_name, method_auth)
 
     return {
@@ -514,63 +580,140 @@ def analyze_resource_methods(
     }
 
 
-def build_authorizer_cache(api_id: str, resources: List[Dict]) -> Dict[str, Dict]:
+def _collect_authorizer_ids_from_resource(
+    api_id: str,
+    resource: Dict
+) -> set:
+    """
+    Collect authorizer IDs from a single resource's methods.
+
+    Helper function for parallel authorizer ID collection.
+
+    Args:
+        api_id: API ID.
+        resource: Resource dictionary.
+
+    Returns:
+        Set of authorizer IDs found in this resource.
+    """
+    authorizer_ids = set()
+    resource_methods = resource.get('resourceMethods', {})
+
+    for method in resource_methods.keys():
+        if method == 'OPTIONS':
+            continue
+        success, stdout, stderr = run_command(
+            f"aws apigateway get-method --rest-api-id {api_id} "
+            f"--resource-id {resource.get('id')} --http-method {method} --output json"
+        )
+        if success:
+            try:
+                data = json.loads(stdout)
+                authorizer_id = data.get('authorizerId')
+                auth_type = data.get('authorizationType')
+                if authorizer_id and auth_type in ['CUSTOM', 'COGNITO_USER_POOLS']:
+                    authorizer_ids.add(authorizer_id)
+            except Exception:
+                pass
+
+    return authorizer_ids
+
+
+def build_authorizer_cache(
+    api_id: str,
+    resources: List[Dict],
+    resource_pool_size: int = 10,
+    authorizer_pool_size: int = 5
+) -> Dict[str, Dict]:
     """
     Build cache of all authorizers used in an API.
 
+    Optimized with parallel resource scanning and parallel authorizer caching.
     This prevents race conditions when using ThreadPoolExecutor.
 
     Args:
         api_id: API ID.
         resources: List of resources.
+        resource_pool_size: Pool size for parallel resource scanning (default: 10).
+        authorizer_pool_size: Pool size for parallel authorizer caching (default: 5).
 
     Returns:
         Dictionary mapping authorizer_id to authorizer details.
     """
     authorizer_cache = {}
-    unique_authorizer_ids = set()
-
-    # Progress tracking
-    total_resources = len(resources)
-    processed = 0
 
     print(f"  {Colors.DEBUG}└─ Building authorizer cache...{Colors.RESET}", end='', flush=True)
 
-    for resource in resources:
-        resource_methods = resource.get('resourceMethods', {})
-        for method in resource_methods.keys():
-            if method == 'OPTIONS':
-                continue
-            success, stdout, stderr = run_command(
-                f"aws apigateway get-method --rest-api-id {api_id} "
-                f"--resource-id {resource.get('id')} --http-method {method} --output json"
-            )
-            if success:
-                try:
-                    data = json.loads(stdout)
-                    authorizer_id = data.get('authorizerId')
-                    auth_type = data.get('authorizationType')
-                    if authorizer_id and auth_type in ['CUSTOM', 'COGNITO_USER_POOLS']:
-                        unique_authorizer_ids.add(authorizer_id)
-                except Exception:
-                    pass
+    # STEP 1: Parallel collection of authorizer IDs from resources
+    total_resources = len(resources)
+    unique_authorizer_ids = set()
 
-        processed += 1
-        if processed % 10 == 0 or processed == total_resources:
-            print(f"\r  {Colors.DEBUG}└─ Building authorizer cache... {processed}/{total_resources}{Colors.RESET}", end='', flush=True)
+    # Use ThreadPoolExecutor to collect authorizer IDs in parallel
+    with ThreadPoolExecutor(max_workers=resource_pool_size) as executor:
+        # Submit tasks for all resources
+        future_to_resource = {
+            executor.submit(_collect_authorizer_ids_from_resource, api_id, resource): idx
+            for idx, resource in enumerate(resources)
+        }
+
+        # Process results as they complete
+        processed = 0
+        for future in as_completed(future_to_resource):
+            try:
+                result_ids = future.result()
+                unique_authorizer_ids.update(result_ids)
+            except Exception:
+                pass
+
+            processed += 1
+            if processed % 10 == 0 or processed == total_resources:
+                print(
+                    f"\r  {Colors.DEBUG}└─ Scanning resources... "
+                    f"{processed}/{total_resources}{Colors.RESET}",
+                    end='',
+                    flush=True
+                )
 
     print()  # New line after progress
 
-    # Cache authorizer details
+    # STEP 2: Parallel caching of authorizer details
     if unique_authorizer_ids:
-        print(f"  {Colors.DEBUG}└─ Caching {len(unique_authorizer_ids)} authorizer(s)...{Colors.RESET}", end='', flush=True)
-        cached = 0
-        for authorizer_id in unique_authorizer_ids:
-            auth_details = get_authorizer_details(api_id, authorizer_id)
-            if auth_details:
-                authorizer_cache[authorizer_id] = auth_details
-            cached += 1
-            print(f"\r  {Colors.DEBUG}└─ Caching {len(unique_authorizer_ids)} authorizer(s)... {cached}/{len(unique_authorizer_ids)}{Colors.RESET}", end='', flush=True)
+        unique_ids_list = list(unique_authorizer_ids)
+        num_authorizers = len(unique_ids_list)
+        print(
+            f"  {Colors.DEBUG}└─ Caching {num_authorizers} authorizer(s)...{Colors.RESET}",
+            end='',
+            flush=True
+        )
+
+        # Use ThreadPoolExecutor to cache authorizers in parallel
+        with ThreadPoolExecutor(max_workers=authorizer_pool_size) as executor:
+            # Submit tasks for all authorizers
+            future_to_auth_id = {
+                executor.submit(get_authorizer_details, api_id, auth_id): auth_id
+                for auth_id in unique_ids_list
+            }
+
+            # Process results as they complete
+            cached = 0
+            for future in as_completed(future_to_auth_id):
+                auth_id = future_to_auth_id[future]
+                try:
+                    auth_details = future.result()
+                    if auth_details:
+                        authorizer_cache[auth_id] = auth_details
+                except Exception:
+                    pass
+
+                cached += 1
+                if cached % 5 == 0 or cached == num_authorizers:
+                    print(
+                        f"\r  {Colors.DEBUG}└─ Caching {num_authorizers} "
+                        f"authorizer(s)... {cached}/{num_authorizers}{Colors.RESET}",
+                        end='',
+                        flush=True
+                    )
+
         print()  # New line after caching
 
     if authorizer_cache:
@@ -585,14 +728,16 @@ def check_api_security(
     current_index: int,
     total_apis: int,
     report_file: Optional[Path] = None,
-    use_resource_pool: bool = False,
-    resource_pool_size: int = 5
+    use_resource_pool: bool = True,
+    resource_pool_size: int = 5,
+    whitelist: Optional[Dict[str, List[str]]] = None
 ) -> Dict:
     """
     Review API resources and identify those without authorizer.
 
     With OPTIONS method filtering and real-time report updates.
-    Optionally uses concurrent analysis for resources.
+    Uses concurrent analysis for resources within each API.
+    Skips whitelisted endpoints.
 
     Args:
         api_id: API ID.
@@ -600,8 +745,9 @@ def check_api_security(
         current_index: Current index in analysis (1-based).
         total_apis: Total APIs to analyze.
         report_file: Path to report file for real-time updates (optional).
-        use_resource_pool: Use ThreadPool for parallel resource analysis.
-        resource_pool_size: Pool size for resources (default: 5, configurable).
+        use_resource_pool: Use ThreadPool for parallel resource analysis (default: True).
+        resource_pool_size: Pool size for resources within this API (default: 5, configurable).
+        whitelist: Whitelist dictionary for excluding endpoints (optional).
 
     Returns:
         Dictionary with analysis result.
@@ -656,121 +802,80 @@ def check_api_security(
 
     # Build authorizer cache before processing resources
     # This prevents race conditions when multiple threads call get_authorizer_details()
-    authorizer_cache = build_authorizer_cache(api_id, resources)
+    # Use same pool_size for cache resource scanning, scale down for authorizer caching
+    authorizer_cache = build_authorizer_cache(
+        api_id,
+        resources,
+        resource_pool_size=resource_pool_size,
+        authorizer_pool_size=max(1, resource_pool_size // 2)  # Half the resource pool size
+    )
 
     # Use ThreadPoolExecutor for parallel resource analysis
-    if use_resource_pool:
-        with ThreadPoolExecutor(max_workers=resource_pool_size) as executor:
-            # Create analysis tasks for each resource
-            future_to_resource = {}
-            for resource in resources:
-                resource_id = resource.get('id')
-                path = resource.get('path', 'N/A')
-                future = executor.submit(
-                    analyze_resource_methods,
-                    api_id,
-                    resource_id,
-                    path,
-                    report_file,
-                    api_name,
-                    authorizer_cache
-                )
-                future_to_resource[future] = (resource_id, path)
-
-            # Process results as they complete
-            for future in as_completed(future_to_resource):
-                resource_id, path = future_to_resource[future]
-                try:
-                    result = future.result()
-                    methods_list = result.get('methods', [])
-                    methods_filtered_total += result.get('methods_filtered', 0)
-
-                    if not methods_list:
-                        continue
-
-                    resources_scanned += 1
-                    total_methods += len(methods_list)
-                    method_statuses = []
-
-                    for method_auth in methods_list:
-                        has_auth = (
-                            method_auth.get('authorizationType') in
-                            {'CUSTOM', 'AWS_IAM', 'COGNITO_USER_POOLS'} or
-                            method_auth.get('apiKeyRequired', False)
-                        )
-
-                        if has_auth:
-                            resources_with_auth.append(method_auth)
-                            method = method_auth.get('method', 'N/A')
-                            method_statuses.append(
-                                f"{Colors.SUCCESS}✓{Colors.RESET}{method}"
-                            )
-                        else:
-                            resources_without_auth.append(method_auth)
-                            method = method_auth.get('method', 'N/A')
-                            method_statuses.append(
-                                f"{Colors.ERROR}✗{Colors.RESET}{method}"
-                            )
-
-                    # Show resource
-                    print(f"  {Colors.DEBUG}  ├─ {path}{Colors.RESET}")
-                    method_display = " | ".join(method_statuses)
-                    print(
-                        f"  {Colors.DEBUG}  │  └─ Methods: "
-                        f"{method_display}{Colors.RESET}"
-                    )
-                    sys.stdout.flush()
-
-                except Exception as e:
-                    log_error(f"Error analyzing resource {resource_id}: {str(e)}")
-
-    else:
-        # Sequential analysis (original)
+    # (APIs are analyzed sequentially, but resources within each API are parallelized)
+    with ThreadPoolExecutor(max_workers=resource_pool_size) as executor:
+        # Create analysis tasks for each resource
+        future_to_resource = {}
         for resource in resources:
             resource_id = resource.get('id')
             path = resource.get('path', 'N/A')
-            result = analyze_resource_methods(
+            future = executor.submit(
+                analyze_resource_methods,
                 api_id,
                 resource_id,
                 path,
                 report_file,
                 api_name,
-                authorizer_cache
+                authorizer_cache,
+                whitelist
             )
+            future_to_resource[future] = (resource_id, path)
 
-            methods_list = result.get('methods', [])
-            methods_filtered_total += result.get('methods_filtered', 0)
+        # Process results as they complete
+        for future in as_completed(future_to_resource):
+            resource_id, path = future_to_resource[future]
+            try:
+                result = future.result()
+                methods_list = result.get('methods', [])
+                methods_filtered_total += result.get('methods_filtered', 0)
 
-            if not methods_list:
-                continue
+                if not methods_list:
+                    continue
 
-            resources_scanned += 1
-            total_methods += len(methods_list)
-            method_statuses = []
+                resources_scanned += 1
+                total_methods += len(methods_list)
+                method_statuses = []
 
-            for method_auth in methods_list:
-                has_auth = (
-                    method_auth.get('authorizationType') in
-                    {'CUSTOM', 'AWS_IAM', 'COGNITO_USER_POOLS'} or
-                    method_auth.get('apiKeyRequired', False)
+                for method_auth in methods_list:
+                    # Only count proper authorization (not API key alone)
+                    has_proper_auth = (
+                        method_auth.get('authorizationType') in
+                        {'CUSTOM', 'AWS_IAM', 'COGNITO_USER_POOLS'}
+                    )
+
+                    if has_proper_auth:
+                        resources_with_auth.append(method_auth)
+                        method = method_auth.get('method', 'N/A')
+                        method_statuses.append(
+                            f"{Colors.SUCCESS}✓{Colors.RESET}{method}"
+                        )
+                    else:
+                        resources_without_auth.append(method_auth)
+                        method = method_auth.get('method', 'N/A')
+                        method_statuses.append(
+                            f"{Colors.ERROR}✗{Colors.RESET}{method}"
+                        )
+
+                # Show resource
+                print(f"  {Colors.DEBUG}  ├─ {path}{Colors.RESET}")
+                method_display = " | ".join(method_statuses)
+                print(
+                    f"  {Colors.DEBUG}  │  └─ Methods: "
+                    f"{method_display}{Colors.RESET}"
                 )
+                sys.stdout.flush()
 
-                if has_auth:
-                    resources_with_auth.append(method_auth)
-                    method = method_auth.get('method', 'N/A')
-                    method_statuses.append(f"{Colors.SUCCESS}✓{Colors.RESET}{method}")
-                else:
-                    resources_without_auth.append(method_auth)
-                    method = method_auth.get('method', 'N/A')
-                    method_statuses.append(f"{Colors.ERROR}✗{Colors.RESET}{method}")
-
-            # Show resource
-            print(f"  {Colors.DEBUG}  ├─ {path}{Colors.RESET}")
-            method_display = " | ".join(method_statuses)
-            print(
-                f"  {Colors.DEBUG}  │  └─ Methods: {method_display}{Colors.RESET}"
-            )
-            sys.stdout.flush()
+            except Exception as e:
+                log_error(f"Error analyzing resource {resource_id}: {str(e)}")
 
     # Show scan summary
     protected_count = len(resources_with_auth)
@@ -945,7 +1050,7 @@ def create_consolidated_report_file(api_name: Optional[str] = None) -> Optional[
                 f"security_audit_report_{timestamp}.csv"
             )
 
-        # Create CSV with headers (without created_at column)
+        # Create CSV with headers
         with open(report_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(
                 f,
@@ -956,7 +1061,9 @@ def create_consolidated_report_file(api_name: Optional[str] = None) -> Optional[
                     'is_authorized',
                     'authorization_type',
                     'specific_auth_type',
-                    'authorizer_name'
+                    'authorizer_name',
+                    'api_key',
+                    'whitelisted'
                 ]
             )
             writer.writeheader()
@@ -986,19 +1093,27 @@ def update_report_file(
         True if updated successfully, False otherwise.
     """
     try:
-        # Determine if it has authorization
-        has_auth = (
+        # Check for API Key requirement
+        has_api_key = resource_data.get("apiKeyRequired", False)
+
+        # Determine if it has proper authorization (not just API key)
+        has_proper_auth = (
             resource_data.get("authorizationType") in
-            {'CUSTOM', 'AWS_IAM', 'COGNITO_USER_POOLS'} or
-            resource_data.get("apiKeyRequired", False)
+            {'CUSTOM', 'AWS_IAM', 'COGNITO_USER_POOLS'}
         )
 
-        # Prepare row for CSV (without created_at column)
+        # is_authorized should be YES only if there's proper authorization (not API key alone)
+        is_authorized = 'YES' if has_proper_auth else 'NO'
+
+        # Check if whitelisted
+        is_whitelisted = resource_data.get('whitelisted', False)
+
+        # Prepare row for CSV
         row = {
             'api': api_name,
             'method': resource_data.get('method', 'N/A'),
             'path': resource_data.get('path', 'N/A'),
-            'is_authorized': 'YES' if has_auth else 'NO',
+            'is_authorized': is_authorized,
             'authorization_type': (
                 resource_data.get('authorizationType') or 'NONE'
             ),
@@ -1007,7 +1122,9 @@ def update_report_file(
                 resource_data.get('authorizationType') or
                 'NONE'
             ),
-            'authorizer_name': resource_data.get('authorizerName', '')
+            'authorizer_name': resource_data.get('authorizerName') or 'NONE',
+            'api_key': 'YES' if has_api_key else 'NO',
+            'whitelisted': 'YES' if is_whitelisted else 'NO'
         }
 
         # Add row to CSV
@@ -1021,7 +1138,9 @@ def update_report_file(
                     'is_authorized',
                     'authorization_type',
                     'specific_auth_type',
-                    'authorizer_name'
+                    'authorizer_name',
+                    'api_key',
+                    'whitelisted'
                 ]
             )
             writer.writerow(row)
@@ -1067,7 +1186,10 @@ def save_security_report(results: List[Dict]) -> Optional[str]:
 
 def get_pool_size() -> int:
     """
-    Prompt user for execution pool size.
+    Prompt user for resource pool size.
+
+    This controls parallelization of RESOURCES within each API.
+    Each API is analyzed sequentially to avoid output confusion.
 
     Returns:
         Pool size (between 1 and 10).
@@ -1075,8 +1197,11 @@ def get_pool_size() -> int:
     while True:
         try:
             size = input(
-                f"\n{Colors.INFO}Enter pool size for concurrent analysis "
-                f"(1-10, default 5): {Colors.RESET}"
+                f"\n{Colors.INFO}Enter resource pool size "
+                f"(1-10, default 5):\n"
+                f"{Colors.DEBUG}(Controls parallelization within each API - "
+                f"APIs are analyzed sequentially){Colors.RESET}\n"
+                f"{Colors.INFO}> {Colors.RESET}"
             ).strip()
 
             if not size:
@@ -1091,17 +1216,23 @@ def get_pool_size() -> int:
             log_warning("Please enter a valid number")
 
 
-def analyze_apis_concurrently(
+def analyze_apis_sequentially(
     apis: List[Dict],
-    pool_size: int,
+    resource_pool_size: int,
     report_file: Optional[Path] = None
 ) -> List[Dict]:
     """
-    Analyze multiple APIs concurrently using ThreadPoolExecutor.
+    Analyze multiple APIs SEQUENTIALLY (one after another).
+
+    Each API is analyzed completely (including all its resources in parallel)
+    before moving to the next API. This prevents output confusion and ensures
+    clean reporting per API.
+
+    Skips endpoints that are whitelisted in config/whitelist.json.
 
     Args:
         apis: List of APIs to analyze.
-        pool_size: Number of concurrent workers.
+        resource_pool_size: Number of concurrent workers for resources within each API.
         report_file: Path to consolidated report file.
 
     Returns:
@@ -1110,54 +1241,40 @@ def analyze_apis_concurrently(
     results = []
     total_apis = len(apis)
 
-    def check_api_with_reporting(
-        api_id: str,
-        api_name: str,
-        idx: int,
-        total: int
-    ) -> Dict:
-        """Wrapper that includes report update and resource pool."""
-        return check_api_security(
-            api_id,
-            api_name,
-            idx,
-            total,
-            report_file=report_file,
-            use_resource_pool=True,
-            resource_pool_size=pool_size
-        )
+    # Load whitelist once at the beginning
+    whitelist = load_whitelist()
+    if whitelist:
+        num_whitelisted = sum(len(v) for v in whitelist.values())
+        log_info(f"Loaded whitelist with {len(whitelist)} API(s) and {num_whitelisted} endpoint(s)")
 
-    with ThreadPoolExecutor(max_workers=pool_size) as executor:
-        # Create analysis tasks for each API
-        future_to_api = {}
-        for idx, api in enumerate(apis, 1):
-            api_id = api['id']
-            api_name = api['name']
-            future = executor.submit(
-                check_api_with_reporting,
+    # Process each API sequentially
+    for idx, api in enumerate(apis, 1):
+        api_id = api['id']
+        api_name = api['name']
+
+        try:
+            # Analyze this API completely (with resource parallelization)
+            result = check_api_security(
                 api_id,
                 api_name,
                 idx,
-                total_apis
+                total_apis,
+                report_file=report_file,
+                use_resource_pool=True,
+                resource_pool_size=resource_pool_size,
+                whitelist=whitelist
             )
-            future_to_api[future] = (api_id, api_name)
-
-        # Process results as they complete
-        for future in as_completed(future_to_api):
-            api_id, api_name = future_to_api[future]
-            try:
-                result = future.result()
-                results.append(result)
-            except Exception as e:
-                log_error(f"Error analyzing API {api_name}: {str(e)}")
-                results.append({
-                    'api_id': api_id,
-                    'api_name': api_name,
-                    'total_resources': 0,
-                    'resources_without_auth': [],
-                    'resources_with_auth': [],
-                    'error': str(e)
-                })
+            results.append(result)
+        except Exception as e:
+            log_error(f"Error analyzing API {api_name}: {str(e)}")
+            results.append({
+                'api_id': api_id,
+                'api_name': api_name,
+                'total_resources': 0,
+                'resources_without_auth': [],
+                'resources_with_auth': [],
+                'error': str(e)
+            })
 
     return results
 
@@ -1302,12 +1419,12 @@ def main() -> int:
             log_error("Failed to create consolidated report file.")
             return 1
 
-        # Execute concurrent analysis
+        # Execute sequential analysis (APIs sequentially, resources in parallel)
         print()
-        log_info("Starting concurrent analysis...")
-        results = analyze_apis_concurrently(
+        log_info("Starting sequential API analysis with parallel resource processing...")
+        results = analyze_apis_sequentially(
             apis,
-            pool_size,
+            resource_pool_size=pool_size,
             report_file=consolidated_report
         )
 

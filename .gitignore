@@ -1,8 +1,13 @@
 # Profile configurations (contain sensitive API IDs)
-profiles/*.ini
+profiles/
+*.ini
 
-# Error logs
+# Reports and error logs
+reports/
 error_dump_*.log
+
+# Claude Code settings
+.claude/
 
 # Python cache
 __pycache__/
