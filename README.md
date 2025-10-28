@@ -1,8 +1,6 @@
-# API Gateway Creator & Security Checker
+# API Gateway Creator
 
-Suite avanzada de herramientas para gestionar AWS API Gateway:
-- **API Gateway Creator**: Crea métodos HTTP con configuraciones inteligentes
-- **API Gateway Security Checker**: Auditoría de seguridad y análisis de endpoints
+Herramienta avanzada para automatizar la creación de endpoints en AWS API Gateway con configuración inteligente de métodos HTTP, integración VPC Link y autenticación Cognito.
 
 ## Características
 
@@ -19,185 +17,25 @@ Suite avanzada de herramientas para gestionar AWS API Gateway:
 ## Estructura de Archivos
 
 ```
-├── apiGatewayCreator.py                    # Script para crear endpoints
-├── apiGatewaySecurityCheck.py              # 🆕 Script de auditoría de seguridad
+├── apiGatewayCreator.py                    # Script principal
 ├── config/
 │   ├── method_configs.ini                  # Configuraciones por método HTTP
 │   ├── auth_headers.ini                    # Headers de autorización
 │   ├── cors_headers.ini                    # Headers CORS
 │   └── response_templates.ini              # Templates de respuesta
+├── gateway_creator/                        # Módulo de creación
+│   ├── config_manager.py                   # Gestión de configuración
+│   ├── aws_manager.py                      # Interfaz AWS
+│   └── ui_components.py                    # Componentes de UI
+├── common/                                 # Módulos compartidos
+│   ├── constants.py                        # Constantes globales
+│   ├── exceptions.py                       # Excepciones personalizadas
+│   ├── logging_config.py                   # Sistema de logging
+│   └── models.py                           # Dataclasses
 ├── profiles/                               # Perfiles de configuración guardados
-│   ├── mi-api-dev.ini                     # Ejemplo de perfil
-│   └── otro-perfil.ini                    # Otro perfil
-├── reports/                                # 🆕 Reportes de auditoría y error logs
-│   ├── MS-Discounts-Public-PROD_report_*.csv
-│   ├── security_audit_report_*.csv
-│   └── error_dump_*.log
-├── common/                                 # 🆕 Módulos compartidos
-│   ├── constants.py                       # Constantes globales
-│   ├── exceptions.py                      # Excepciones personalizadas
-│   ├── logging_config.py                  # Sistema de logging
-│   └── models.py                          # Dataclasses
-├── security_check/                         # 🆕 Módulo de auditoría
-│   ├── api_filter.py                      # Filtrado de APIs
-│   ├── concurrent_analyzer.py             # Análisis paralelo
-│   └── metadata_collector.py              # Recolección de metadata
-├── gateway_creator/                        # 🆕 Módulo de creación
-│   ├── config_manager.py                  # Gestión de configuración
-│   ├── ui_components.py                   # Componentes de UI
-│   └── aws_manager.py                     # Gestor de AWS (stub)
+├── reports/                                # Reportes de error
 └── README.md                               # Esta documentación
 ```
-
-## 🆕 Auditoría de Seguridad
-
-### Uso
-```bash
-python3 apiGatewaySecurityCheck.py
-```
-
-### Características
-- ✅ **Análisis de autorización**: Identifica endpoints sin protección
-- ✅ **Auditoría de authorizers**: Detalla nombre y tipo de cada authorizer
-- ✅ **Filtrado automático**: Excluye APIs con sufijos -DEV y -CI
-- ✅ **Whitelist de endpoints**: Excluye endpoints con autenticación en backend (config/whitelist.json)
-- ✅ **Análisis secuencial por API**: APIs analizadas una por una (output limpio y ordenado)
-- ✅ **Análisis paralelo de recursos**: Dentro de cada API, recursos en paralelo
-- ✅ **Cache optimizado**: Escaneo de recursos paralelo (70% más rápido) + caching de authorizers paralelo (80% más rápido)
-- ✅ **Reporte CSV**: Exportación detallada en tiempo real
-- ✅ **Diferenciación API Key**: Columna separada para identificar endpoints con solo API Key
-- ✅ **Interfaz interactiva**: Selección de API individual o todas
-- ✅ **Pool configurable**: Un solo parámetro que escala automáticamente todo
-
-### Flujo de Auditoría
-
-```
-1. Seleccionar API
-   └─ Opción 1: Auditar API específica
-   └─ Opción 2: Auditar todas las APIs
-
-2. Configurar pool de recursos (1-10 workers)
-   └─ Controla TODA la paralelización automáticamente
-
-3. PARA CADA API (secuencial):
-
-   a) Construcción optimizada de cache de authorizers
-      └─ Fase 1: Escanea recursos en PARALELO (pool_size workers)
-      └─ Fase 2: Cachea authorizers en PARALELO (pool_size/2 workers)
-      └─ Tiempo: ~10-15 segundos (116 recursos)
-
-   b) Análisis de recursos en paralelo (pool_size workers)
-      └─ Procesa recursos simultáneamente
-      └─ Genera reporte CSV en tiempo real
-      └─ Muestra resumen por API
-
-4. Resumen final
-   └─ Total de APIs analizadas
-   └─ Endpoints protegidos vs desprotegidos
-   └─ Rate de éxito
-```
-
-### Optimizaciones Implementadas
-
-| Aspecto | Antes | Después | Mejora |
-|---------|-------|---------|--------|
-| Análisis de APIs | Paralelo (confuso) | Secuencial (limpio) | Mejor UX |
-| Cache de recursos | Secuencial | Paralelo (10 workers) | ~70% más rápido |
-| Cache de authorizers | Secuencial | Paralelo (auto-escala) | ~80% más rápido |
-| Tiempo total cache | 30-35s | 10-15s | 60-70% más rápido |
-| Pool configurable | No | Sí (auto-escala) | Total control |
-
-### Salida del Reporte CSV
-
-Columns:
-- **api**: Nombre de la API
-- **method**: Método HTTP (GET, POST, PUT, DELETE, PATCH)
-- **path**: Ruta del endpoint
-- **is_authorized**: YES/NO (tiene autorización mediante Cognito, Lambda, AWS IAM, etc. - NO incluye API Key)
-- **authorization_type**: Tipo de autorización (NONE, COGNITO_USER_POOLS, CUSTOM, AWS_IAM)
-- **specific_auth_type**: Tipo específico identificado (ADMIN, CUSTOMER, NONE, etc.)
-- **authorizer_name**: Nombre del authorizer configurado (AdminProd, CustomerPROD, etc.)
-- **api_key**: YES/NO (¿Requiere API Key?)
-- **whitelisted**: YES/NO (¿Está en la whitelist de config/whitelist.json?)
-
-Ejemplo:
-```csv
-api,method,path,is_authorized,authorization_type,specific_auth_type,authorizer_name,api_key,whitelisted
-MS-Discounts-Public-PROD,PUT,/bo/campaigns/campaign-active,YES,COGNITO_USER_POOLS,ADMIN,AdminProd,NO,NO
-MS-Discounts-Public-PROD,POST,/customer/rewards/valid-cash-wallet,NO,NONE,NONE,,NO,NO
-MS-Discounts-Public-PROD,GET,/b2c/campaigns/referral,YES,COGNITO_USER_POOLS,CUSTOMER,CustomerPROD,NO,NO
-MS-Discounts-Public-PROD,DELETE,/public/data,NO,NONE,NONE,,YES,NO
-MS-Auth-Server-Public-PROD,POST,/oauth/token,NO,NONE,NONE,,NO,YES
-```
-
-### Interpretación de Resultados
-
-| Caso | is_authorized | api_key | whitelisted | authorization_type | Acción |
-|------|---|---|---|---|---|
-| Endpoint protegido por Cognito Admin | YES | NO | NO | COGNITO_USER_POOLS | ✅ Seguro |
-| Endpoint protegido por Lambda | YES | NO | NO | CUSTOM | ✅ Seguro |
-| Endpoint sin autorización | NO | NO | NO | NONE | ⚠️ Revisar |
-| Endpoint con solo API Key | NO | YES | NO | NONE | ⚠️ Débil (API Key alone) |
-| API pública | NO | NO | NO | NONE | ⚠️ Intencional? |
-| Endpoint en whitelist (backend auth) | NO | NO | YES | NONE | ✅ Excluido (tiene auth en MS) |
-
-**Nota importante**: `is_authorized` muestra **solo autorización robusta** (Cognito, Lambda, AWS IAM). **API Key se reporta por separado** en la columna `api_key` para permitir un análisis granular de la seguridad.
-
-### 🆕 Whitelist de Endpoints
-
-#### Propósito
-Excluir endpoints que tienen autenticación implementada **directamente en el microservicio** (no en API Gateway), evitando falsos positivos en el reporte de seguridad.
-
-#### Ubicación
-`config/whitelist.json`
-
-#### Formato
-```json
-{
-  "whitelist": {
-    "MS-Auth-Server-Public-PROD": [
-      "/oauth/token",
-      "/oauth/authorize",
-      "/auth/login"
-    ],
-    "MS-jumio-Public-PROD": [
-      "/jumio/verification/*",
-      "/jumio/status"
-    ]
-  }
-}
-```
-
-#### Características
-- **Coincidencia exacta**: `/oauth/token` coincide solo con esa ruta exacta
-- **Patrones con wildcard**: `/jumio/verification/*` coincide con `/jumio/verification/123`, etc.
-- **Auto-carga**: Se carga automáticamente al iniciar el análisis
-- **Exclusión de CSV**: Los endpoints en whitelist **NO aparecen en el reporte CSV**
-
-#### Cómo usar
-1. Ejecuta el security check y ve los nombres de las APIs
-2. Identifica endpoints que tienen autenticación en backend
-3. Edita `config/whitelist.json` y agrega el API name y los endpoint paths
-4. Ejecuta el security check de nuevo - ahora esos endpoints estarán excluidos
-
-#### Ejemplo real
-```json
-{
-  "whitelist": {
-    "MS-Auth-Server-Public-PROD": [
-      "/oauth/token",
-      "/oauth/validate"
-    ],
-    "MS-Customer-Public-PROD": [
-      "/customer/register",
-      "/customer/login",
-      "/customer/*/profile"
-    ]
-  }
-}
-```
-
----
 
 ## Creación de Endpoints
 

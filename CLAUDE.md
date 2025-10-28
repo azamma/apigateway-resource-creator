@@ -1,16 +1,19 @@
-# CLAUDE.md - API Gateway Resource Creator
+# CLAUDE.md - API Gateway Creator
 
-Comprehensive development guidance for working with the AWS API Gateway Resource Creator project.
+Comprehensive development guidance for working with the AWS API Gateway Creator project.
 
 ## Project Overview
 
-**API Gateway Resource Creator & Security Auditor** is a Python-based automation suite for AWS API Gateway management. It provides two main tools:
+**API Gateway Creator** is a Python-based automation tool for AWS API Gateway endpoint creation. It provides:
 
-1. **Creator Tool** (`apiGatewayCreator.py`) - Interactive HTTP method creation with VPC Link and Cognito integration
-2. **Security Auditor** (`apiGatewaySecurityCheck.py`) - Concurrent security analysis and compliance reporting
+- **Automated HTTP Method Creation** - Multi-method endpoints with intelligent configuration
+- **VPC Link Integration** - Seamless microservice backend connectivity
+- **Cognito Authentication** - Built-in support for Admin/Customer authorization
+- **Configuration Profiles** - Save and reuse configurations across deployments
+- **Multi-Endpoint Support** - Create multiple endpoints in a single session
 
 **Language**: Python 3.7+
-**Architecture**: Modular with separate packages for configuration, gateway management, and security analysis
+**Architecture**: Modular with separate packages for configuration, gateway management, and UI
 **AWS Services**: API Gateway, Cognito, VPC Links
 
 ## Running the Tools
@@ -28,58 +31,38 @@ python3 apiGatewayCreator.py
 4. Optionally save configuration as reusable profile
 5. Create additional endpoints or exit
 
-### Secondary Tool: Security Auditor
-
-```bash
-python3 apiGatewaySecurityCheck.py
-```
-
-**Functionality:**
-- Scans all API Gateway resources for authorization
-- Generates CSV reports with security analysis
-- Parallel processing for performance (configurable 1-10 workers)
-- Filters out development APIs (-DEV, -CI suffixes)
 
 ## Project Structure
 
 ```
 apigateway-resource-creator/
-├── apiGatewayCreator.py           (1,619 lines) - Main creator tool
-├── apiGatewaySecurityCheck.py     (1,364 lines) - Security audit tool
-├── CLAUDE.md                       (this file)
-├── README.md                       (user documentation)
+├── apiGatewayCreator.py           (Main entry point)
+├── CLAUDE.md                      (This file)
+├── README.md                      (User documentation)
 │
-├── common/                         (Shared utilities - 909 lines)
-│   ├── __init__.py                (87 lines)
-│   ├── constants.py               (221 lines) - Constants & enums
-│   ├── exceptions.py              (117 lines) - Custom exceptions
-│   ├── logging_config.py          (265 lines) - Logging system
-│   └── models.py                  (219 lines) - Data models (dataclasses)
+├── gateway_creator/               (Creator package)
+│   ├── __init__.py
+│   ├── config_manager.py          - INI config loading
+│   ├── aws_manager.py             - AWS CLI interface
+│   └── ui_components.py           - UI/menu components
 │
-├── gateway_creator/               (Creator package - 635 lines)
-│   ├── __init__.py                (39 lines)
-│   ├── config_manager.py          (252 lines) - INI config loading
-│   ├── aws_manager.py             (205 lines) - AWS CLI interface
-│   └── ui_components.py           (139 lines) - UI/menu components
-│
-├── security_check/                (Security package - 629 lines)
-│   ├── __init__.py                (19 lines)
-│   ├── api_filter.py              (122 lines) - API filtering
-│   ├── concurrent_analyzer.py     (256 lines) - Parallel analysis
-│   └── metadata_collector.py      (251 lines) - Metadata collection
+├── common/                        (Shared utilities)
+│   ├── __init__.py
+│   ├── constants.py               - Constants & enums
+│   ├── exceptions.py              - Custom exceptions
+│   ├── logging_config.py          - Logging system
+│   └── models.py                  - Data models
 │
 ├── config/                        (Configuration files)
 │   ├── method_configs.ini         - HTTP method defaults
-│   ├── auth_headers.ini           - Authorization headers by type
+│   ├── auth_headers.ini           - Authorization headers
 │   ├── cors_headers.ini           - CORS configuration
 │   └── response_templates.ini     - Response templates
 │
-├── profiles/                      (Generated - user's saved configs)
-│   └── *.ini                      (Profile INI files)
+├── profiles/                      (User's saved configurations)
+│   └── *.ini
 │
-└── reports/                       (Generated - audit results)
-    ├── <api-name>_report_<timestamp>.csv
-    ├── security_audit_report_<timestamp>.csv
+└── reports/                       (Error logs)
     └── error_dump_<timestamp>.log
 ```
 
@@ -215,66 +198,6 @@ UI helper functions:
 - `print_box_message(message, style)` - Box formatting
 - `clear_screen()` - Terminal clear
 
-### Security Check Package (`security_check/`)
-
-**Purpose**: Security audit and compliance analysis
-
-#### `api_filter.py` (122 lines)
-
-APIFilter class with static methods:
-- `filter_apis(apis, exclude_patterns)` - Remove APIs by suffix pattern
-- `filter_methods(methods)` - Exclude methods like OPTIONS
-- Configurable exclusion patterns (-DEV, -CI by default)
-
-#### `concurrent_analyzer.py` (256 lines)
-
-**AnalysisResult dataclass:**
-```python
-@dataclass
-class AnalysisResult:
-    api_id: str
-    api_name: str
-    methods_analyzed: int
-    methods_protected: int
-    methods_unprotected: int
-    authorization_details: List[dict]
-```
-
-**ConcurrentAnalyzer class:**
-- ThreadPoolExecutor-based parallel analysis
-- Configurable pool size (1-10 workers)
-- Methods:
-  - `analyze_apis(apis, max_workers=5)` → List[AnalysisResult]
-  - `analyze_single_api(api)` → AnalysisResult
-  - Timeout handling per analysis
-
-Performance: 4x faster than sequential analysis (116 resources analyzed in 60-75 seconds)
-
-#### `metadata_collector.py` (251 lines)
-
-**ResourceMetadata dataclass:**
-```python
-@dataclass
-class ResourceMetadata:
-    api_id: str
-    resource_path: str
-    http_method: str
-    is_authorized: bool
-    authorization_type: str
-    specific_auth_type: str  # COGNITO_ADMIN, COGNITO_CUSTOMER, NO_AUTH
-    authorizer_name: str
-    created_date: Optional[str]
-    last_modified: Optional[str]
-```
-
-**MetadataCollector class:**
-- Collects authorization metadata from resources
-- Caches authorizer information
-- Methods:
-  - `collect_resource_metadata(api, resource)` → ResourceMetadata
-  - `get_authorizer_info(authorizer_id)` → dict
-  - `to_dict()`, `from_dict()` - Serialization
-
 ## Configuration Architecture
 
 ### Path Architecture
@@ -315,40 +238,6 @@ Two configuration modes in `select_configuration_source()`:
 - Chooses Authorizer and User Pool
 - Configures authorization type
 - Option to save as profile for reuse
-
-### Endpoint Whitelist
-
-Located in `config/whitelist.json`:
-
-**Purpose**: Exclude endpoints that have authentication in the microservice backend (not in API Gateway)
-
-**Format**:
-```json
-{
-  "whitelist": {
-    "MS-Auth-Server-Public-PROD": [
-      "/oauth/token",
-      "/oauth/validate",
-      "/auth/login"
-    ],
-    "MS-Customer-Public-PROD": [
-      "/customer/register",
-      "/customer/*/profile"
-    ]
-  }
-}
-```
-
-**Features**:
-- **Exact match**: `/oauth/token` matches exactly that path
-- **Wildcard patterns**: `/customer/*/profile` matches `/customer/123/profile`, `/customer/456/profile`, etc.
-- **Auto-loading**: Whitelist is automatically loaded at the start of analysis
-- **CSV filtering**: Whitelisted endpoints are NOT included in the CSV report
-
-**Adding endpoints**:
-1. Find the API name from the security check menu
-2. Add the endpoint path to the whitelist under that API name
-3. Run the security check again - whitelisted endpoints will be excluded
 
 ### Configuration Files
 
@@ -495,104 +384,6 @@ Complete method creation with authorization and integration:
 - `aws apigateway put-integration-request-parameters` - Map headers
 - `aws apigateway put-method-response` - Define response models
 
-## Security Auditor Architecture
-
-### Execution Model: Sequential APIs with Parallel Resources
-
-The security auditor implements a hybrid parallelization strategy:
-
-**API-Level Execution** (Sequential):
-- APIs are analyzed **one at a time** in sequence
-- This ensures clean, organized output
-- Each API completes fully before the next begins
-- Prevents output interleaving from concurrent API analysis
-
-**Resource-Level Execution** (Parallel):
-- Within each API, resources are analyzed in **parallel**
-- Uses `ThreadPoolExecutor` with configurable pool size (1-10 workers)
-- Multiple resources from the same API analyzed simultaneously
-- Results processed as they complete via `as_completed()`
-
-**Benefits:**
-- ✓ Clean, readable output per API
-- ✓ Fast analysis (resources parallelized)
-- ✓ No output confusion from concurrent APIs
-- ✓ Configurable performance tuning
-- ✓ Single authorizer cache per API prevents race conditions
-
-### Data Flow
-
-```
-┌─────────────────────────────────────────────┐
-│ User selects API or scans ALL               │
-└─────────┬───────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────┐
-│ analyze_apis_sequentially()                 │
-│ (SEQUENTIAL loop through APIs)              │
-└─────────┬───────────────────────────────────┘
-          │
-          ├──────► API 1: check_api_security()
-          │        ├─ build_authorizer_cache()
-          │        └─ Resources (PARALLEL pool):
-          │           ├─ Resource 1
-          │           ├─ Resource 2  (concurrent)
-          │           └─ Resource 3
-          │
-          ├──────► API 2: check_api_security()
-          │        (same pattern)
-          │
-          └──────► API N: check_api_security()
-                   (same pattern)
-```
-
-### Optimized Cache Building
-
-The authorizer cache building process is highly optimized with configurable parallelization:
-
-**Phase 1: Parallel Resource Scanning**
-- Scans all resources in parallel
-- Identifies which authorizers are used
-- Collects authorizer IDs from resource methods
-- Pool size = configured resource pool size (default: 5)
-- ~70% faster than sequential scanning
-
-**Phase 2: Parallel Authorizer Caching**
-- Caches authorizer details in parallel
-- Each authorizer fetched independently
-- Results combined into single cache dictionary
-- Pool size = resource pool size / 2 (auto-scaled, default: 2-3)
-- ~80% faster than sequential caching
-
-**Total Performance:**
-- 116 resources, 4 authorizers: ~10-15 seconds (was 30-35 seconds)
-- 60-70% faster cache building overall
-- **Automatically scales** based on your resource pool configuration
-
-**How It Works:**
-- If you set resource pool = 8, cache uses: phase 1 (8 workers), phase 2 (4 workers)
-- If you set resource pool = 2, cache uses: phase 1 (2 workers), phase 2 (1 worker)
-- Lower values = lighter system load but slower cache building
-- Higher values = faster cache building but higher resource usage
-
-### Configuration
-
-**Pool Size** (Resource Parallelization):
-- Default: 5 workers
-- Range: 1-10 workers
-- Controls how many resources analyzed simultaneously within each API
-- Higher = faster but more resource usage
-- Lower = slower but lighter system load
-
-**Example Usage:**
-```
-# Scan all APIs with 8 parallel resource workers
-python3 apiGatewaySecurityCheck.py
-# Select: 2 (Scan all APIs)
-# Enter: 8 (pool size)
-```
-
 ## Multi-Endpoint Creation
 
 ### Main Loop (line 938)
@@ -731,35 +522,6 @@ cognito-idp:DescribeUserPool
 - `create_endpoint_workflow()` (848) - Orchestrates full endpoint creation
 - `main()` (911) - Main entry with loop
 
-### apiGatewaySecurityCheck.py
-
-**API Management:**
-- `get_rest_apis()` - Lists all REST APIs
-- `filter_apis_by_suffix()` - Applies exclusion filters
-
-**Analysis:**
-- `build_authorizer_cache()` - Caches authorizer metadata (prevents race conditions)
-- `check_api_security()` - Analyzes single API with parallel resource processing
-- `analyze_resource_methods()` - Analyzes resource methods
-- `analyze_apis_sequentially()` - Sequential API analysis with parallel resource pools
-
-**Reporting:**
-- `create_consolidated_report_file()` - Creates CSV report with columns: api, method, path, is_authorized, authorization_type, specific_auth_type, authorizer_name, api_key
-- `update_report_file()` - Real-time report updates with smart authorization detection
-- `save_security_report()` - Saves JSON report
-- `main()` - Main entry point
-
-**Important Architecture Notes:**
-- **APIs are analyzed SEQUENTIALLY** (one after another) to prevent output confusion
-- **Resources within each API are parallelized** using configurable pool size
-- This ensures clean, readable output while maintaining performance benefits
-
-**CSV Report Details:**
-- **is_authorized**: YES only for robust authorization (Cognito, Lambda, AWS IAM) - NOT API Key
-- **api_key**: Separate column (YES/NO) to track API Key requirement independently
-- **whitelisted**: YES for endpoints in config/whitelist.json (excluded from review as they have backend auth)
-- This distinction allows granular security analysis - you can identify endpoints relying only on API Keys or those with backend authentication
-
 ## Development Guidelines
 
 ### Adding New Authorization Types
@@ -896,15 +658,6 @@ python3 apiGatewayCreator.py
 # Repeat until done
 ```
 
-### Run Security Audit
-
-```bash
-python3 apiGatewaySecurityCheck.py
-# Automatically analyzes all APIs (except -DEV, -CI)
-# Generates: reports/security_audit_report_<timestamp>.csv
-# Optional: Adjust thread pool size for performance
-```
-
 ### Validate Saved Profile
 
 Profiles are automatically validated before use. To manually validate:
@@ -920,16 +673,9 @@ Profiles are automatically validated before use. To manually validate:
 - Manual configuration: 10-30 seconds (depends on API count)
 - Endpoint creation: 5-15 seconds per endpoint
 
-**Security Auditor:**
-- 116 resources, 4 authorizers:
-  - Authorizer cache build: ~30-35 seconds
-  - Concurrent analysis (5 workers): ~25-40 seconds
-  - **Total: ~60-75 seconds** (4x faster than sequential)
-
 **Optimization tips:**
 - Use profiles for repeated deployments
-- Increase worker pool size (up to 10) for security audits
-- Run security audits off-peak to avoid API rate limits
+- Run during off-peak hours to avoid API rate limits
 
 ## Dependencies
 
@@ -982,9 +728,8 @@ This comprehensive system provides:
 
 1. **Rapid Endpoint Creation** - Automate HTTP method setup with multi-method support
 2. **Configuration Reusability** - Save and load profiles for repeated deployments
-3. **Security Auditing** - Concurrent analysis identifies unprotected endpoints
-4. **Professional Logging** - Centralized error tracking with timestamped dumps
-5. **Modular Architecture** - Clean separation of concerns across packages
-6. **Type Safety** - Dataclasses and custom exceptions for robust code
+3. **Professional Logging** - Centralized error tracking with timestamped dumps
+4. **Modular Architecture** - Clean separation of concerns across packages
+5. **Type Safety** - Dataclasses and custom exceptions for robust code
 
 **For questions or debugging**, check error dumps in `reports/` and review relevant function implementations referenced in this guide.
