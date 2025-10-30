@@ -69,7 +69,6 @@ def print_menu_header(title: str) -> None:
     Args:
         title: The menu title to display.
     """
-    from logging_config import ANSIColors
     color = ANSIColors.CYAN
     reset = ANSIColors.RESET
     print(
@@ -88,7 +87,6 @@ def print_menu_option(number: int, text: str, emoji: str = "▸") -> None:
         text: Option text to display.
         emoji: Emoji prefix (default: "▸").
     """
-    from logging_config import ANSIColors
     color = ANSIColors.GREEN
     reset = ANSIColors.RESET
     print(f"  {color}{emoji} {number}{reset} - {text}")
@@ -107,7 +105,6 @@ def print_summary_item(
         value: The value to display.
         highlight: Whether to highlight the value (default: False).
     """
-    from logging_config import ANSIColors
     info_color = ANSIColors.CYAN
     highlight_color = ANSIColors.YELLOW
     value_color = ANSIColors.GREEN
@@ -135,8 +132,6 @@ def print_box_message(message: str, style: str = "info") -> None:
         message: The message to display.
         style: Box style - "info", "success", "warning", or "error".
     """
-    from logging_config import ANSIColors
-
     color_map = {
         "info": ANSIColors.CYAN,
         "success": ANSIColors.GREEN,
@@ -416,6 +411,27 @@ def select_http_methods() -> List[str]:
         except ValueError:
             logger.error("Por favor, introduce números separados por comas.")
 
+def select_auth_method() -> str:
+    """Selecciona el método de autenticación: API Key o Authorizer"""
+    clear_screen()
+    print_menu_header("Selecciona el método de autenticación")
+    print_menu_option(1, "Authorizer (Cognito, Lambda, AWS IAM)", emoji="🔐")
+    print_menu_option(2, "API Key", emoji="🔑")
+
+    while True:
+        try:
+            choice = int(input(f"\n{ANSIColors.YELLOW}→{ANSIColors.RESET} Selecciona el método de autenticación: "))
+            if choice == 1:
+                logger.success("Método de autenticación: Authorizer")
+                return "AUTHORIZER"
+            elif choice == 2:
+                logger.success("Método de autenticación: API Key")
+                return "API_KEY"
+            else:
+                logger.error("Opción inválida. Inténtalo de nuevo.")
+        except ValueError:
+            logger.error("Por favor, introduce un número.")
+
 def select_auth_type() -> str:
     """Selecciona el tipo de autorización"""
     auth_types = ['COGNITO_ADMIN', 'COGNITO_CUSTOMER', 'NO_AUTH']
@@ -669,27 +685,35 @@ def save_configuration_profile(config: Dict[str, Any], config_manager: ConfigMan
         profile_config = configparser.ConfigParser()
 
         # Sección PROFILE con config base
-        profile_config['PROFILE'] = {
-            'api_id': config['API_ID'],
-            'connection_variable': config['CONNECTION_VARIABLE'],
-            'authorizer_id': config['AUTHORIZER_ID'],
-            'cognito_pool': config['COGNITO_POOL'],
-            'backend_host': config['BACKEND_HOST'],
-            'auth_type': config['AUTH_TYPE'],
-            'cors_type': config['CORS_TYPE']
+        # Preparar valores para configparser (requiere strings)
+        profile_data = {
+            'api_id': str(config['API_ID']) if config['API_ID'] else '',
+            'connection_variable': str(config['CONNECTION_VARIABLE']) if config['CONNECTION_VARIABLE'] else '',
+            'authorizer_id': str(config['AUTHORIZER_ID']) if config['AUTHORIZER_ID'] else '',
+            'cognito_pool': str(config['COGNITO_POOL']) if config['COGNITO_POOL'] else '',
+            'backend_host': str(config['BACKEND_HOST']) if config['BACKEND_HOST'] else '',
+            'auth_type': str(config['AUTH_TYPE']) if config['AUTH_TYPE'] else '',
+            'cors_type': str(config['CORS_TYPE']) if config['CORS_TYPE'] else '',
+            'auth_method': str(config.get('AUTH_METHOD', '')) if config.get('AUTH_METHOD') else ''
         }
 
-        # Guardar headers de autorización editados
+        # Agregar sección PROFILE
+        profile_config['PROFILE'] = profile_data
+
+        # Guardar headers de autorización editados (convertir a strings)
         if final_auth_headers:
-            profile_config[f'AUTH_HEADERS_{auth_type}'] = final_auth_headers
+            headers_section = {k: str(v) if v is not None else '' for k, v in final_auth_headers.items()}
+            profile_config[f'AUTH_HEADERS_{auth_type}'] = headers_section
 
-        # Guardar headers CORS editados
+        # Guardar headers CORS editados (convertir a strings)
         if final_cors_headers:
-            profile_config[f'CORS_HEADERS_{cors_type}'] = final_cors_headers
+            headers_section = {k: str(v) if v is not None else '' for k, v in final_cors_headers.items()}
+            profile_config[f'CORS_HEADERS_{cors_type}'] = headers_section
 
-        # Guardar configuración de métodos editada
+        # Guardar configuración de métodos editada (convertir a strings)
         if final_method_config:
-            profile_config['METHOD_CONFIG'] = final_method_config
+            method_section = {k: str(v) if v is not None else '' for k, v in final_method_config.items()}
+            profile_config['METHOD_CONFIG'] = method_section
 
         with open(profile_file, 'w') as f:
             profile_config.write(f)
@@ -736,6 +760,7 @@ def load_configuration_profile(profile_name: str) -> Optional[Dict[str, Any]]:
             'BACKEND_HOST': profile_config['PROFILE']['backend_host'],
             'AUTH_TYPE': profile_config['PROFILE']['auth_type'],
             'CORS_TYPE': profile_config['PROFILE']['cors_type'],
+            'AUTH_METHOD': profile_config['PROFILE'].get('auth_method', 'AUTHORIZER'),  # Default a AUTHORIZER para perfiles antiguos
             '_profile_config': profile_config  # Guardar referencia al ConfigParser
         }
 
@@ -799,27 +824,36 @@ def validate_configuration_profile(config: Dict[str, Any]) -> Dict[str, bool]:
     else:
         logger.debug("  ✗ Variable VPC Link no encontrada")
 
-    # Validar Authorizer
-    logger.debug("Verificando Authorizer...")
-    authorizers = run_aws_command(f"aws apigateway get-authorizers --rest-api-id {config['API_ID']}")
-    validation_results['AUTHORIZER'] = False
-    if authorizers and 'items' in authorizers:
-        validation_results['AUTHORIZER'] = any(auth['id'] == config['AUTHORIZER_ID'] for auth in authorizers['items'])
-    if validation_results['AUTHORIZER']:
-        logger.debug("  ✓ Authorizer encontrado")
-    else:
-        logger.debug("  ✗ Authorizer no encontrado")
+    # Validar Authorizer y Cognito Pool solo si el método de autenticación es AUTHORIZER
+    auth_method = config.get('AUTH_METHOD', 'AUTHORIZER')
 
-    # Validar Cognito Pool
-    logger.debug("Verificando Cognito Pool...")
-    pools = run_aws_command("aws cognito-idp list-user-pools --max-results 60")
-    validation_results['COGNITO_POOL'] = False
-    if pools and 'UserPools' in pools:
-        validation_results['COGNITO_POOL'] = any(pool['Name'] == config['COGNITO_POOL'] for pool in pools['UserPools'])
-    if validation_results['COGNITO_POOL']:
-        logger.debug("  ✓ Cognito Pool encontrado")
+    if auth_method == 'AUTHORIZER':
+        # Validar Authorizer
+        logger.debug("Verificando Authorizer...")
+        authorizers = run_aws_command(f"aws apigateway get-authorizers --rest-api-id {config['API_ID']}")
+        validation_results['AUTHORIZER'] = False
+        if authorizers and 'items' in authorizers:
+            validation_results['AUTHORIZER'] = any(auth['id'] == config['AUTHORIZER_ID'] for auth in authorizers['items'])
+        if validation_results['AUTHORIZER']:
+            logger.debug("  ✓ Authorizer encontrado")
+        else:
+            logger.debug("  ✗ Authorizer no encontrado")
+
+        # Validar Cognito Pool
+        logger.debug("Verificando Cognito Pool...")
+        pools = run_aws_command("aws cognito-idp list-user-pools --max-results 60")
+        validation_results['COGNITO_POOL'] = False
+        if pools and 'UserPools' in pools:
+            validation_results['COGNITO_POOL'] = any(pool['Name'] == config['COGNITO_POOL'] for pool in pools['UserPools'])
+        if validation_results['COGNITO_POOL']:
+            logger.debug("  ✓ Cognito Pool encontrado")
+        else:
+            logger.debug("  ✗ Cognito Pool no encontrado")
     else:
-        logger.debug("  ✗ Cognito Pool no encontrado")
+        # Si es API_KEY, no necesita validar Authorizer ni Cognito Pool
+        logger.debug("Validación de Authorizer y Cognito Pool omitida (método: API_KEY)")
+        validation_results['AUTHORIZER'] = True
+        validation_results['COGNITO_POOL'] = True
 
     return validation_results
 
@@ -1090,15 +1124,27 @@ def get_interactive_config(config_manager: ConfigManager) -> Optional[Dict[str, 
     api_id = select_api_grouped()
     if not api_id: return None
 
-    authorizers_data = run_aws_command(f"aws apigateway get-authorizers --rest-api-id {api_id}")
-    if not authorizers_data or 'items' not in authorizers_data: return None
-    authorizer_id = select_from_menu("Selecciona el Authorizer:", authorizers_data['items'], return_key='id')
-    if not authorizer_id: return None
+    # Seleccionar método de autenticación
+    auth_method = select_auth_method()
+    if not auth_method: return None
 
-    user_pools_data = run_aws_command("aws cognito-idp list-user-pools --max-results 60")
-    if not user_pools_data or 'UserPools' not in user_pools_data: return None
-    cognito_pool = select_from_menu("Selecciona el Cognito User Pool:", user_pools_data['UserPools'], name_key='Name', return_key='Name')
-    if not cognito_pool: return None
+    authorizer_id = None
+    cognito_pool = None
+
+    if auth_method == "AUTHORIZER":
+        # Si es Authorizer, pedir que seleccione uno
+        authorizers_data = run_aws_command(f"aws apigateway get-authorizers --rest-api-id {api_id}")
+        if not authorizers_data or 'items' not in authorizers_data: return None
+        authorizer_id = select_from_menu("Selecciona el Authorizer:", authorizers_data['items'], return_key='id')
+        if not authorizer_id: return None
+
+        user_pools_data = run_aws_command("aws cognito-idp list-user-pools --max-results 60")
+        if not user_pools_data or 'UserPools' not in user_pools_data: return None
+        cognito_pool = select_from_menu("Selecciona el Cognito User Pool:", user_pools_data['UserPools'], name_key='Name', return_key='Name')
+        if not cognito_pool: return None
+    else:
+        # Si es API Key, no necesita authorizer ni cognito pool
+        logger.info("API Key seleccionada - no requiere Authorizer ni Cognito Pool")
 
     # Seleccionar Stage
     stages_data = run_aws_command(f"aws apigateway get-stages --rest-api-id {api_id}")
@@ -1133,8 +1179,12 @@ def get_interactive_config(config_manager: ConfigManager) -> Optional[Dict[str, 
         if not variable_name: return None
         backend_host = f"https://${{stageVariables.{variable_name}}}"
 
-    # Selección de tipo de autorización
-    auth_type = select_auth_type()
+    # Selección de tipo de autorización (solo si es Authorizer)
+    auth_type = None
+    if auth_method == "AUTHORIZER":
+        auth_type = select_auth_type()
+    else:
+        auth_type = "API_KEY"
 
     # Selección de tipo de CORS
     cors_type = select_cors_type()
@@ -1146,15 +1196,18 @@ def get_interactive_config(config_manager: ConfigManager) -> Optional[Dict[str, 
         "COGNITO_POOL": cognito_pool,
         "BACKEND_HOST": backend_host,
         "AUTH_TYPE": auth_type,
-        "CORS_TYPE": cors_type
+        "CORS_TYPE": cors_type,
+        "AUTH_METHOD": auth_method
     }
 
     clear_screen()
     logger.section("RESUMEN DE LA CONFIGURACIÓN")
     print_summary_item("API ID", config["API_ID"])
     print_summary_item("Variable de Conexión", config["CONNECTION_VARIABLE"])
-    print_summary_item("ID de Authorizer", config["AUTHORIZER_ID"])
-    print_summary_item("Cognito Pool", config["COGNITO_POOL"])
+    print_summary_item("Método de Autenticación", config["AUTH_METHOD"])
+    if auth_method == "AUTHORIZER":
+        print_summary_item("ID de Authorizer", config["AUTHORIZER_ID"] or "NONE")
+        print_summary_item("Cognito Pool", config["COGNITO_POOL"] or "NONE")
     print_summary_item("Host de Backend", config["BACKEND_HOST"], highlight=True)
     print_summary_item("Tipo de Autorización", config["AUTH_TYPE"])
     print_summary_item("Tipo de CORS", config["CORS_TYPE"])
@@ -1292,8 +1345,6 @@ class APIGatewayManager:
 
                 new_id = self.create_resource(parent_id, part["segment"])
                 if new_id:
-                    logger.info(f"  ➕ Configurando método OPTIONS por defecto para nuevo recurso: {part['segment']}")
-                    self.create_options_method(new_id, "DEFAULT")
                     final_resource_id = new_id
                     parent_id = new_id
                 else:
@@ -1308,14 +1359,20 @@ class APIGatewayManager:
             params[f"method.request.path.{param}"] = True
         return params
     
-    def create_http_method(self, resource_id: str, http_method: str, resource_path: str, backend_path: str, backend_host: str, auth_type: str, cognito_pool: str = None, custom_headers: Dict[str, str] = None):
+    def create_http_method(self, resource_id: str, http_method: str, resource_path: str, backend_path: str, backend_host: str, auth_type: str, cognito_pool: str = None, custom_headers: Dict[str, str] = None, auth_method: str = "AUTHORIZER"):
         """
         Crea un método HTTP completo usando configuraciones .ini
+
+        Args:
+            auth_method: "AUTHORIZER" o "API_KEY" - determina el método de autenticación
         """
         method_config = self.config.get_method_config(http_method)
 
         # Determinar tipo de autorización
-        if auth_type == "NO_AUTH":
+        if auth_method == "API_KEY":
+            authorization_type = "NONE"
+            authorizer_id = None
+        elif auth_type == "NO_AUTH":
             authorization_type = "NONE"
             authorizer_id = None
         else:
@@ -1349,11 +1406,15 @@ class APIGatewayManager:
         
         # Crear método
         method_command = f"""aws apigateway put-method --rest-api-id {self.api_id} --resource-id {resource_id} --http-method {http_method} --authorization-type {authorization_type}"""
-        
+
         if authorizer_id:
             method_command += f" --authorizer-id {authorizer_id}"
-            
-        method_command += " --no-api-key-required"
+
+        # Configurar API Key
+        if auth_method == "API_KEY":
+            method_command += " --api-key-required"
+        else:
+            method_command += " --no-api-key-required"
         
         if path_params:
             params_json = json.dumps(path_params).replace('"', '\\"')
@@ -1430,7 +1491,7 @@ class APIGatewayManager:
             temp_filename = temp_file.name
         
         try:
-            integration_command = f"""aws apigateway put-integration --rest-api-id {self.api_id} --resource-id {resource_id} --http-method OPTIONS --type MOCK --request-templates file://{temp_filename} --passthrough-behavior WHEN_NO_MATCH --timeout-in-millis CONFIG_TIMEOUT_MS"""
+            integration_command = f"""aws apigateway put-integration --rest-api-id {self.api_id} --resource-id {resource_id} --http-method OPTIONS --type MOCK --request-templates file://{temp_filename} --passthrough-behavior WHEN_NO_MATCH --timeout-in-millis {CONFIG_TIMEOUT_MS}"""
             result = self.run_command(integration_command, "Configurando integración OPTIONS")
             if not result["success"]: return False
         finally:
@@ -1509,7 +1570,8 @@ def create_endpoint_workflow(manager: APIGatewayManager, base_config: Dict[str, 
             base_config["BACKEND_HOST"],
             base_config["AUTH_TYPE"],
             base_config["COGNITO_POOL"],
-            CUSTOM_HEADERS if CUSTOM_HEADERS else None
+            CUSTOM_HEADERS if CUSTOM_HEADERS else None,
+            base_config.get("AUTH_METHOD", "AUTHORIZER")
         )
 
         if method_success:
@@ -1560,13 +1622,17 @@ def main():
             # Workflow para cargar perfil existente y crear recursos
             base_config = load_profile_workflow()
             if not base_config:
-                logger.error("No se pudo cargar un perfil válido")
+                logger.error("No se pudo cargar un perfil válido. Por favor, crea un perfil primero.")
                 sys.exit(1)
 
             # Extraer configuración base
-            API_ID = base_config["API_ID"]
-            CONNECTION_VARIABLE = base_config["CONNECTION_VARIABLE"]
-            AUTHORIZER_ID = base_config["AUTHORIZER_ID"]
+            try:
+                API_ID = base_config["API_ID"]
+                CONNECTION_VARIABLE = base_config["CONNECTION_VARIABLE"]
+                AUTHORIZER_ID = base_config["AUTHORIZER_ID"]
+            except KeyError as e:
+                logger.error(f"Configuración de perfil incompleta: falta {str(e)}")
+                sys.exit(1)
 
             # Crear manager con configuración base
             manager = APIGatewayManager(API_ID, CONNECTION_VARIABLE, AUTHORIZER_ID, config_manager)
