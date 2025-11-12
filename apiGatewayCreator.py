@@ -882,23 +882,78 @@ def select_configuration_source() -> Optional[Dict[str, Any]]:
         logger.info("Procediendo con configuración manual...")
         return get_interactive_config()
 
-def main_menu() -> Optional[str]:
-    """Menú principal que permite elegir entre cargar perfil o crear nuevo perfil"""
-    print_menu_header("MENÚ PRINCIPAL")
-    print_menu_option(1, "Cargar perfil existente y crear recursos", emoji="📂")
-    print_menu_option(2, "Crear nuevo perfil (sin crear recursos)", emoji="⚙️")
+class MenuOption:
+    """Representa una opción de menú con su descripción, emoji y manejador."""
 
-    while True:
-        try:
-            choice = int(input(f"\n{ANSIColors.YELLOW}→{ANSIColors.RESET} Selecciona una opción: "))
-            if choice == 1:
-                return "load_profile"
-            elif choice == 2:
-                return "create_profile"
-            else:
-                logger.error("Opción inválida. Inténtalo de nuevo.")
-        except ValueError:
-            logger.error("Por favor, introduce un número.")
+    def __init__(self, key: str, text: str, emoji: str = "▸") -> None:
+        """
+        Inicializa una opción de menú.
+
+        Args:
+            key: Identificador único de la opción (ej: 'load_profile')
+            text: Texto descriptivo a mostrar
+            emoji: Ícono decorativo (por defecto "▸")
+        """
+        self.key = key
+        self.text = text
+        self.emoji = emoji
+
+
+class MenuManager:
+    """Gestor centralizado de menús para evitar duplicación y facilitar extensión."""
+
+    # Definir opciones como constantes de clase para reutilización
+    MAIN_MENU_OPTIONS = [
+        MenuOption("load_profile", "Cargar perfil existente y crear recursos", emoji="📂"),
+        MenuOption("create_profile_and_resources", "Crear nuevo perfil y recurso", emoji="⚙️"),
+    ]
+
+    @staticmethod
+    def display_menu(title: str, options: List[MenuOption]) -> Optional[str]:
+        """
+        Muestra un menú y retorna la opción seleccionada.
+
+        Args:
+            title: Título del menú
+            options: Lista de opciones disponibles
+
+        Returns:
+            La clave (key) de la opción seleccionada, o None si falla
+
+        Raises:
+            ValueError: Si el usuario introduce entrada inválida
+        """
+        print_menu_header(title)
+        for i, option in enumerate(options, 1):
+            print_menu_option(i, option.text, emoji=option.emoji)
+
+        while True:
+            try:
+                choice = int(input(f"\n{ANSIColors.YELLOW}→{ANSIColors.RESET} Selecciona una opción: "))
+                if 1 <= choice <= len(options):
+                    selected = options[choice - 1]
+                    logger.debug(f"Opción seleccionada: {selected.key}")
+                    return selected.key
+                else:
+                    logger.error(f"Opción inválida. Introduce un número entre 1 y {len(options)}.")
+            except ValueError:
+                logger.error("Por favor, introduce un número válido.")
+
+    @staticmethod
+    def main_menu() -> Optional[str]:
+        """
+        Muestra el menú principal.
+
+        Returns:
+            Clave de la opción seleccionada ('load_profile' o 'create_profile_and_resources'),
+            o None si hay error
+        """
+        return MenuManager.display_menu("MENÚ PRINCIPAL", MenuManager.MAIN_MENU_OPTIONS)
+
+
+def main_menu() -> Optional[str]:
+    """Compatibilidad backwards: delega a MenuManager."""
+    return MenuManager.main_menu()
 
 def load_profile_workflow() -> Optional[Dict[str, Any]]:
     """Workflow para cargar un perfil existente y crear recursos"""
@@ -910,21 +965,40 @@ def load_profile_workflow() -> Optional[Dict[str, Any]]:
 
     return select_existing_profile(profiles)
 
-def create_profile_workflow(config_manager: ConfigManager) -> bool:
-    """Workflow para crear un nuevo perfil sin crear recursos"""
-    logger.section("CREAR NUEVO PERFIL")
+def create_profile_workflow(config_manager: ConfigManager) -> Optional[Dict[str, Any]]:
+    """
+    Workflow para crear un nuevo perfil e inmediatamente crear recursos.
+
+    Permite al usuario:
+    1. Configurar una nueva configuración interactivamente
+    2. Opcionalmente guardar como perfil
+    3. Continuar directamente a crear recursos (independiente del guardado)
+
+    Args:
+        config_manager: Gestor de configuración global
+
+    Returns:
+        Configuración completa (dict) si es exitosa, None si se cancela
+    """
+    logger.section("CREAR NUEVO PERFIL Y RECURSO")
 
     config = get_interactive_config(config_manager)
     if not config:
-        return False
+        logger.warning("Configuración cancelada por el usuario")
+        return None
 
+    # Preguntar si desea guardar como perfil (OPCIONAL, no bloquea la creación)
     save_profile = input(f"\n{ANSIColors.YELLOW}→{ANSIColors.RESET} ¿Deseas guardar esta configuración como perfil? (s/n): ").lower()
     if save_profile == 's':
         if save_configuration_profile(config, config_manager):
-            logger.success("Perfil guardado exitosamente. Puedes usarlo para crear recursos en el futuro.")
-            return True
+            logger.success("✓ Perfil guardado exitosamente. Puedes reutilizarlo en el futuro.")
+        else:
+            logger.warning("No se pudo guardar el perfil, pero continuaremos con la creación de recursos.")
+    else:
+        logger.info("Perfil no guardado (se usará solo para esta sesión).")
 
-    return False
+    # IMPORTANTE: Retornar la config SIEMPRE, independiente de si se guardó o no
+    return config
 
 def select_existing_profile(profiles: List[str]) -> Optional[Dict[str, Any]]:
     """Permite seleccionar un perfil existente de la lista"""
@@ -1597,7 +1671,120 @@ def create_endpoint_workflow(manager: APIGatewayManager, base_config: Dict[str, 
         logger.error("Error verificando integraciones del recurso")
         return False
 
-def main():
+def create_resources_loop(
+    manager: "APIGatewayManager",
+    base_config: Dict[str, Any],
+    config_manager: ConfigManager
+) -> None:
+    """
+    Bucle para crear múltiples endpoints con la misma configuración.
+
+    Args:
+        manager: Gestor de API Gateway
+        base_config: Configuración base (API, authorizer, etc.)
+        config_manager: Gestor de configuraciones globales
+
+    Raises:
+        KeyError: Si base_config falta campos críticos
+    """
+    first_endpoint = True
+    base_methods = None
+
+    while True:
+        logger.section("CONFIGURACIÓN DE NUEVO ENDPOINT")
+
+        # Obtener configuración del endpoint
+        if first_endpoint:
+            endpoint_config = get_endpoint_and_methods(
+                None,
+                config_manager,
+                base_config["AUTH_TYPE"]
+            )
+            if endpoint_config:
+                base_methods = endpoint_config["HTTP_METHODS"]
+            first_endpoint = False
+        else:
+            endpoint_config = get_endpoint_and_methods(
+                base_methods,
+                config_manager,
+                base_config["AUTH_TYPE"]
+            )
+
+        if not endpoint_config:
+            break
+
+        # Crear el endpoint
+        success = create_endpoint_workflow(manager, base_config, endpoint_config)
+
+        # Preguntar si desea crear otro endpoint
+        create_another = input(
+            "\n🔄 ¿Deseas crear otro endpoint con la misma configuración? (s/n): "
+        ).lower()
+        if create_another != 's':
+            break
+
+
+def execute_workflow(choice: str, config_manager: ConfigManager) -> None:
+    """
+    Ejecuta el workflow correspondiente según la opción del menú.
+
+    Args:
+        choice: Opción seleccionada ('load_profile' o 'create_profile_and_resources')
+        config_manager: Gestor de configuraciones
+
+    Raises:
+        SystemExit: En caso de error crítico
+    """
+    if choice == "load_profile":
+        base_config = load_profile_workflow()
+        if not base_config:
+            logger.error("No se pudo cargar un perfil válido.")
+            sys.exit(1)
+
+    elif choice == "create_profile_and_resources":
+        # NUEVO: Crear perfil y luego crear recursos
+        base_config = create_profile_workflow(config_manager)
+        if not base_config:
+            logger.warning("Configuración cancelada.")
+            sys.exit(0)
+
+    else:
+        logger.error(f"Opción desconocida: {choice}")
+        sys.exit(1)
+
+    # Validar que tenemos los campos críticos
+    try:
+        API_ID = base_config["API_ID"]
+        CONNECTION_VARIABLE = base_config["CONNECTION_VARIABLE"]
+        AUTHORIZER_ID = base_config["AUTHORIZER_ID"]
+    except KeyError as e:
+        logger.error(f"Configuración incompleta: falta {str(e)}")
+        sys.exit(1)
+
+    # Crear manager con configuración base
+    manager = APIGatewayManager(
+        API_ID,
+        CONNECTION_VARIABLE,
+        AUTHORIZER_ID,
+        config_manager
+    )
+
+    # Ejecutar loop de creación de recursos
+    create_resources_loop(manager, base_config, config_manager)
+
+    logger.section("PROCESO COMPLETADO")
+    logger.success("¡Gracias por usar API Gateway Creator!")
+
+
+def main() -> None:
+    """
+    Punto de entrada principal del CLI.
+
+    Gestiona:
+    - Menú principal
+    - Routing a workflows
+    - Manejo de errores y excepciones
+    """
     try:
         logger.section("API GATEWAY MULTI-METHOD CREATOR by Zamma")
 
@@ -1607,79 +1794,18 @@ def main():
         # Mostrar menú principal
         choice = main_menu()
         if not choice:
+            logger.error("No se seleccionó una opción válida.")
             sys.exit(1)
 
-        if choice == "create_profile":
-            # Workflow para crear nuevo perfil (sin crear recursos)
-            if create_profile_workflow(config_manager):
-                logger.section("PROCESO COMPLETADO")
-                logger.success("¡Perfil creado exitosamente!")
-            else:
-                logger.warning("El perfil no fue guardado")
-            sys.exit(0)
-
-        elif choice == "load_profile":
-            # Workflow para cargar perfil existente y crear recursos
-            base_config = load_profile_workflow()
-            if not base_config:
-                logger.error("No se pudo cargar un perfil válido. Por favor, crea un perfil primero.")
-                sys.exit(1)
-
-            # Extraer configuración base
-            try:
-                API_ID = base_config["API_ID"]
-                CONNECTION_VARIABLE = base_config["CONNECTION_VARIABLE"]
-                AUTHORIZER_ID = base_config["AUTHORIZER_ID"]
-            except KeyError as e:
-                logger.error(f"Configuración de perfil incompleta: falta {str(e)}")
-                sys.exit(1)
-
-            # Crear manager con configuración base
-            manager = APIGatewayManager(API_ID, CONNECTION_VARIABLE, AUTHORIZER_ID, config_manager)
-
-            # Variables para controlar el flujo
-            first_endpoint = True
-            base_methods = None
-
-            # Bucle principal para crear múltiples endpoints
-            while True:
-                logger.section("CONFIGURACIÓN DE NUEVO ENDPOINT")
-
-                # Obtener configuración del endpoint
-                if first_endpoint:
-                    # Primer endpoint: viene de perfil cargado, pedir métodos
-                    endpoint_config = get_endpoint_and_methods(None, config_manager, base_config["AUTH_TYPE"])
-                    if endpoint_config:
-                        base_methods = endpoint_config["HTTP_METHODS"]
-                    first_endpoint = False
-                else:
-                    # Siguientes endpoints: reutilizar métodos base
-                    endpoint_config = get_endpoint_and_methods(base_methods, config_manager, base_config["AUTH_TYPE"])
-
-                if not endpoint_config:
-                    break
-
-                # Crear el endpoint
-                success = create_endpoint_workflow(manager, base_config, endpoint_config)
-
-                # Preguntar si desea crear otro endpoint
-                create_another = input("\n🔄 ¿Deseas crear otro endpoint con la misma configuración? (s/n): ").lower()
-                if create_another != 's':
-                    break
-
-            logger.section("PROCESO COMPLETADO")
-            logger.success("¡Gracias por usar API Gateway Creator!")
+        # Ejecutar workflow correspondiente
+        execute_workflow(choice, config_manager)
 
     except KeyboardInterrupt:
-        error_msg = "Proceso interrumpido por el usuario (Ctrl+C)"
-        logger.dump_error(error_msg)
-        logger.warning(error_msg)
-        sys.exit(1)
+        logger.warning("Proceso interrumpido por el usuario (Ctrl+C)")
+        sys.exit(0)
     except Exception as e:
-        error_msg = "Error inesperado en función principal"
-        logger.dump_error(error_msg, e)
-        logger.error(f"{error_msg}: {e}")
-        logger.info("Revisa el archivo de dump de error para más detalles")
+        logger.error(f"Error inesperado: {e}")
+        logger.dump_error("Error no controlado en main()", {"error": str(e)})
         sys.exit(1)
 
 if __name__ == "__main__":

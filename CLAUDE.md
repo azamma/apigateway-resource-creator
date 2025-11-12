@@ -1,6 +1,97 @@
-# CLAUDE.md - API Gateway Creator
+# CLAUDE.md
 
-Comprehensive development guidance for working with the AWS API Gateway Creator project.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Quick Reference
+
+**Project**: AWS API Gateway Creator - Automated endpoint creation for AWS API Gateway with VPC Link, Cognito auth, and multi-method support.
+
+**Language**: Python 3.7+
+
+**Key Commands**:
+```bash
+# Run the main endpoint creator tool
+python3 apiGatewayCreator.py
+
+# Verify AWS CLI is configured
+aws sts get-caller-identity
+```
+
+**Main Components**:
+- `apiGatewayCreator.py` (1685 lines) - Endpoint creation orchestration
+- `common/` - Shared utilities (constants, exceptions, logging, models)
+- `gateway_creator/` - Configuration and AWS management
+- `config/` - INI configuration files (method, auth, CORS, response templates)
+
+## Development
+
+### Prerequisites
+- Python 3.7+ installed
+- AWS CLI v2 configured with valid credentials
+- IAM permissions for API Gateway and Cognito operations
+
+### Running the Application
+```bash
+# Main endpoint creator tool (interactive)
+python3 apiGatewayCreator.py
+
+# Verify AWS configuration
+aws sts get-caller-identity
+```
+
+### Code Organization
+
+**Total lines of code**: ~3,200 lines across 10 Python files
+
+**Package structure**:
+- `common/constants.py` (221 lines) - Configuration constants, enums, messages
+- `common/exceptions.py` (117 lines) - Custom exception hierarchy
+- `common/logging_config.py` (265 lines) - Logging system with ANSI colors
+- `common/models.py` (219 lines) - Dataclasses for type safety
+- `gateway_creator/config_manager.py` (252 lines) - INI config and profile management
+- `gateway_creator/aws_manager.py` (205 lines) - AWS CLI interface
+- `gateway_creator/ui_components.py` (139 lines) - UI helpers and formatting
+
+### Key Development Patterns
+
+**Logging**: All modules use centralized logger from `common.logging_config`
+```python
+from common import get_logger
+logger = get_logger(__name__)
+logger.success("Operation completed")
+logger.dump_error(exception, {"context": "details"})  # Creates error_dump_*.log
+```
+
+**Error Handling**: Use custom exceptions from `common.exceptions` for specific error types
+```python
+from common import ResourceNotFoundException, ConfigurationException
+# Catch specific exceptions for targeted handling
+```
+
+**Configuration**: Load from INI files via `ConfigManager` in `gateway_creator/config_manager.py`
+- INI files in `config/` directory for method, auth, CORS, response templates
+- User profiles saved in `profiles/` directory (not in git)
+- Error logs in `reports/` directory (not in git)
+
+**AWS Operations**: All AWS calls use subprocess to invoke AWS CLI v2
+- No external AWS SDK dependencies (uses built-in subprocess)
+- Commands executed directly: `aws apigateway`, `aws cognito-idp`, etc.
+- Environment variables for AWS_REGION, AWS_PROFILE, credentials
+
+### Adding Features
+
+**New Authorization Type**:
+1. Add section to `config/auth_headers.ini`
+2. Update `AuthType` enum in `common/constants.py`
+3. Update `select_auth_type()` menu in `apiGatewayCreator.py`
+
+**New Configuration Profile**:
+- Manually create `profiles/<name>.ini` with PROFILE section
+- Or use interactive save after creating first endpoint
+
+**New Validation Check**:
+- Add method to profile validation in `gateway_creator/config_manager.py`
+- Follow existing pattern in `validate_profile()` method
 
 ## Project Overview
 
@@ -16,20 +107,93 @@ Comprehensive development guidance for working with the AWS API Gateway Creator 
 **Architecture**: Modular with separate packages for configuration, gateway management, and UI
 **AWS Services**: API Gateway, Cognito, VPC Links
 
-## Running the Tools
+## Architecture
 
-### Primary Tool: API Gateway Creator
+### Design Patterns
 
+**Two-Path Architecture**:
+The tool distinguishes between two paths:
+
+1. **Backend Path** (FULL_BACKEND_PATH): Complete microservice path sent to backend via integration
+   - Example: `/discounts/v2/campaigns/{id}`
+   - First segment represents microservice name (used by VPC routing/load balancer)
+   - User provides this when asked "Path COMPLETO del backend"
+
+2. **API Gateway Resource Path**: Path created in API Gateway (first segment removed)
+   - Example: `/v2/campaigns/{id}`
+   - What users see in API Gateway console
+   - Automatically stripped from backend path in `create_endpoint_workflow()` line 1538
+
+**Important**: When you enter `/discounts/prueba`:
+- API Gateway only creates `/prueba` as a resource
+- Does NOT search for or create a `/discounts` resource
+- The first segment `/discounts` is only used in the backend integration URI
+- The VPC Link resolves the `{stageVariables.urlDiscountsPrivate}` to route to the correct microservice
+
+The transformation happens in `create_endpoint_workflow()` lines 1535-1540.
+
+**Configuration Layers**:
+1. **System Config** - INI files in `config/` (read-only defaults)
+2. **User Profiles** - Saved configs in `profiles/` for reuse
+3. **Interactive Input** - User selections during execution
+
+**Integration Strategy**:
+- **VPC Link**: Private network connectivity to microservices
+- **Cognito Auth**: ID token validation via authorizers
+- **Claim Mapping**: Headers map Cognito claims to backend via stage variables
+
+### Data Flow
+
+```
+User Input (CLI)
+  ↓
+Config Manager (loads INI + profiles)
+  ↓
+AWS Manager (executes AWS CLI commands)
+  ↓
+AWS Resources (creates endpoints in real-time)
+  ↓
+Logging System (ANSI colors + error dumps)
+```
+
+**Key Data Models** (in `common/models.py`):
+- `APIConfig` - Stores API, stage, auth configuration
+- `EndpointConfig` - Path and HTTP methods for endpoint
+- `MethodSpec` - HTTP method timeout and integration settings
+- `AWSResource` - AWS resource metadata from API responses
+
+### Configuration Priority
+
+When creating endpoints:
+1. Load base config from `config/method_configs.ini` (timeout, integration type)
+2. Load auth headers from `config/auth_headers.ini` based on auth type
+3. Override with user selections (API, methods, backend path)
+4. Optionally save as profile in `profiles/` for reuse
+5. Execute AWS CLI commands to create resources
+
+## Core Workflows
+
+### Creating Endpoints
+
+The interactive tool guides you through endpoint creation:
 ```bash
 python3 apiGatewayCreator.py
 ```
 
-**Interactive workflow:**
+**Workflow options**:
+1. **Load Profile** - Quick setup using saved configuration
+2. **Manual Configuration** - Full interactive setup with all options
+
+**First endpoint process**:
 1. Choose configuration source (Profile or Manual)
 2. Select API, HTTP methods, authorizer, and Cognito pool
 3. Configure endpoint with backend path
-4. Optionally save configuration as reusable profile
-5. Create additional endpoints or exit
+4. Option to save configuration as reusable profile
+5. Create endpoint in AWS
+
+**Additional endpoints**:
+- Reuse configuration from first endpoint or modify as needed
+- Continue loop until complete
 
 
 ## Project Structure
@@ -631,6 +795,23 @@ aws apigateway get-method --rest-api-id <id> --resource-id <id> --http-method GE
 aws apigateway get-integration --rest-api-id <id> --resource-id <id> --http-method GET
 ```
 
+## Important Files
+
+### Configuration Files (read-only in git)
+- `config/method_configs.ini` - HTTP method defaults (timeout: 29s, passthrough: WHEN_NO_MATCH)
+- `config/auth_headers.ini` - Authorization headers for COGNITO_ADMIN, COGNITO_CUSTOMER, NO_AUTH
+- `config/cors_headers.ini` - CORS preflight headers for OPTIONS methods
+- `config/response_templates.ini` - Response mapping templates
+- `config/whitelist.json` - Security check whitelist (endpoints to exclude from analysis)
+
+### Generated Directories (not in git)
+- `profiles/` - User-saved endpoint configurations (*.ini files)
+- `reports/` - Error logs with format `error_dump_YYYYMMDD_HHMMSS.log` containing full tracebacks
+
+### Entry Points
+- `apiGatewayCreator.py` - Main endpoint creation tool (1685 lines)
+- Future security checker scripts may reference `config/whitelist.json`
+
 ## Common Workflows
 
 ### Create Single Endpoint
@@ -722,14 +903,101 @@ venv/, env/, ENV/         # Virtual environments
 *.bak, *.tmp              # Temporary files
 ```
 
-## Summary
+## Recent Architecture Improvements
 
-This comprehensive system provides:
+### Modular Packages (v2.1+)
+- **common/** - Centralized utilities, exceptions, logging, and data models
+- **gateway_creator/** - Configuration management, AWS CLI interface, and UI components
+- Benefits: Code reusability, clean imports, easier testing and maintenance
 
-1. **Rapid Endpoint Creation** - Automate HTTP method setup with multi-method support
-2. **Configuration Reusability** - Save and load profiles for repeated deployments
-3. **Professional Logging** - Centralized error tracking with timestamped dumps
-4. **Modular Architecture** - Clean separation of concerns across packages
-5. **Type Safety** - Dataclasses and custom exceptions for robust code
+### Key Features
+1. **Multi-method Endpoints** - Create GET, POST, PUT, DELETE, PATCH in one session
+2. **Configuration Profiles** - Save and reuse complete endpoint configs
+3. **Three Auth Types** - COGNITO_ADMIN, COGNITO_CUSTOMER, NO_AUTH with automatic header mapping
+4. **Intelligent Validation** - Profiles validate that saved resources still exist before use
+5. **Professional Error Handling** - Custom exceptions with timestamped error dumps in `reports/`
+6. **VPC Link Integration** - Private connectivity to microservices with stage variables
 
-**For questions or debugging**, check error dumps in `reports/` and review relevant function implementations referenced in this guide.
+## Path Architecture Deep Dive
+
+### Common Questions
+
+**Q: If I enter `/discounts/prueba`, does it search for a `/discounts` resource?**
+
+**A: No.** The tool ONLY creates `/prueba` in API Gateway:
+- Input path `/discounts/prueba` is split at line 1538
+- First segment (`discounts`) is removed
+- Only `/prueba` is created as an API Gateway resource
+- The first segment is used only in the backend integration URI
+
+**Q: What happens to the `/discounts` part?**
+
+**A:** It's used in the backend integration:
+- Stored in `FULL_BACKEND_PATH = "/discounts/prueba"`
+- Used to construct the backend URI: `https://${stageVariables.urlDiscountsPrivate}/discounts/prueba`
+- VPC Link sends requests with this full path to the microservice
+
+**Q: Why remove the first segment?**
+
+**A:** AWS API Gateway resources are created relative to the API root, not including the microservice name. The microservice routing is handled by:
+1. VPC Link configuration (knows which backend to call)
+2. Stage variables (e.g., `urlDiscountsPrivate`)
+3. The full backend path in the integration URI
+
+**Example Request Flow:**
+```
+Client → API Gateway GET /v2/campaigns
+           ↓ (creates resource /v2/campaigns only)
+        VPC Link resolves ${stageVariables.urlDiscountsPrivate}
+           ↓
+        Backend GET /discounts/v2/campaigns
+```
+
+### Resource Creation Algorithm
+
+When creating an endpoint `/v2/campaigns/{id}`:
+
+1. Parse path → `['v2', 'campaigns', '{id}']`
+2. For each segment:
+   - Check if `/v2`, `/v2/campaigns`, `/v2/campaigns/{id}` exists
+   - If exists: reuse resource ID
+   - If not exists: ask user confirmation, create if approved
+3. Only these resources are created in AWS API Gateway
+4. The backend integration always uses the FULL path provided by user
+
+### Path Parameter Handling
+
+Path parameters are preserved during transformation:
+- Input: `/orders/{id}/items/{itemId}`
+- Backend: `/orders/{id}/items/{itemId}` (full path preserved)
+- API Gateway: `/orders/{id}/items/{itemId}` (because it has 3 segments after removing first)
+
+If only 1 segment with parameters:
+- Input: `/{id}` (unusual, only parameter)
+- Behavior: No stripping occurs (needs 2+ segments)
+- API Gateway: `/{id}`
+
+## Understanding the Codebase
+
+### Entry Points for Development
+- **Main workflow**: `apiGatewayCreator.py` - Start here to understand endpoint creation flow
+- **Configuration system**: `gateway_creator/config_manager.py` - How INI files and profiles are loaded
+- **Error handling**: `common/exceptions.py` - Custom exception types for specific error scenarios
+- **Logging**: `common/logging_config.py` - How colored output and error dumps work
+
+### Common Tasks
+
+**Debugging failed endpoint creation**:
+1. Check most recent error dump in `reports/` directory
+2. Verify AWS CLI credentials with `aws sts get-caller-identity`
+3. Review error message in dump file for specific failure reason
+
+**Adding new authorization type**:
+1. Add section to `config/auth_headers.ini` with header mappings
+2. Add enum value to `AuthType` in `common/constants.py`
+3. Add menu option to `select_auth_type()` in `apiGatewayCreator.py`
+
+**Extending configuration**:
+- INI files are loaded via `ConfigParser` in `gateway_creator/config_manager.py`
+- Add new sections to existing INI files for new defaults
+- User profiles in `profiles/` directory override system defaults
