@@ -17,6 +17,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Importar módulos de integración con Lambda
+from endpoint_creator_lambda import create_endpoint_via_lambda
+from lambda_client import get_lambda_client
+
 # Importar módulos de soporte refactorizados
 from common import (
     MENU_BORDER_WIDTH,
@@ -1713,8 +1717,10 @@ def create_resources_loop(
         if not endpoint_config:
             break
 
-        # Crear el endpoint
-        success = create_endpoint_workflow(manager, base_config, endpoint_config)
+        # Crear el endpoint vía Lambda (arquitectura refactorizada)
+        # NOTA: La creación ahora se delega a Lambda function para mayor seguridad
+        # y configuración dinámica de headers. Ver REFACTOR_GUIDE.md
+        success = create_endpoint_via_lambda(base_config, endpoint_config)
 
         # Preguntar si desea crear otro endpoint
         create_another = input(
@@ -1790,6 +1796,16 @@ def main() -> None:
 
         # Inicializar gestor de configuraciones
         config_manager = ConfigManager()
+
+        # Verificar conectividad con Lambda (health check)
+        logger.info("🔍 Verificando conexión con Lambda...")
+        lambda_client = get_lambda_client()
+        test_options = lambda_client.get_header_options("auth_headers")
+
+        if test_options:
+            logger.success(f"✓ Lambda conectada: {lambda_client.function_name}")
+        else:
+            logger.warning("⚠️  Lambda no disponible - usando configuraciones locales como fallback")
 
         # Mostrar menú principal
         choice = main_menu()

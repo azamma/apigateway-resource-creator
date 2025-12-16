@@ -1,0 +1,40 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - echo "Installing dependencies..."
+      - pip install --upgrade pip
+      - pip install aws-sam-cli
+      - pip install -r requirements.txt -t .
+
+  pre_build:
+    commands:
+      - echo "Running pre-build validations..."
+      - python --version
+      - sam --version
+      - echo "Validating SAM template..."
+      - sam validate --template template.yml
+
+  build:
+    commands:
+      - echo "Building Lambda package..."
+      - sam build --template template.yml
+      - echo "Packaging Lambda for deployment..."
+      - sam package --template-file .aws-sam/build/template.yaml --s3-bucket $DEPLOYMENT_BUCKET --output-template-file packaged.yaml
+
+  post_build:
+    commands:
+      - echo "Build completed successfully"
+
+artifacts:
+  files:
+    - packaged.yaml
+    - '**/*'
+  name: apigateway-creator-$(date +%Y%m%d-%H%M%S)
+
+cache:
+  paths:
+    - '/root/.cache/pip/**/*'

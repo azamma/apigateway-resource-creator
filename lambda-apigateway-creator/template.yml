@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Lambda para crear recursos en AWS API Gateway
+
+Parameters:
+  Environment:
+    Type: String
+    Default: ci
+    AllowedValues:
+      - ci
+      - dev
+      - prod
+    Description: Environment name
+
+Resources:
+  CustomLambdaRole:
+    Description: Role con permisos para API Gateway y CloudWatch Logs
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: apigateway_creator_policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              # CloudWatch Logs
+              - Resource: "arn:aws:logs:*:*:*"
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+
+              # API Gateway Permissions
+              - Sid: APIGatewayReadWrite
+                Effect: Allow
+                Resource: "arn:aws:apigateway:*::/*"
+                Action:
+                  - apigateway:GET
+                  - apigateway:POST
+                  - apigateway:PUT
+                  - apigateway:PATCH
+                  - apigateway:DELETE
+                  - apigateway:UpdateRestApiPolicy
+
+              # Specific API Gateway Operations
+              - Sid: APIGatewayResources
+                Effect: Allow
+                Resource: "*"
+                Action:
+                  - apigateway:GetResources
+                  - apigateway:GetResource
+                  - apigateway:CreateResource
+                  - apigateway:DeleteResource
+                  - apigateway:GetMethod
+                  - apigateway:PutMethod
+                  - apigateway:DeleteMethod
+                  - apigateway:GetIntegration
+                  - apigateway:PutIntegration
+                  - apigateway:DeleteIntegration
+                  - apigateway:GetMethodResponse
+                  - apigateway:PutMethodResponse
+                  - apigateway:DeleteMethodResponse
+                  - apigateway:GetIntegrationResponse
+                  - apigateway:PutIntegrationResponse
+                  - apigateway:DeleteIntegrationResponse
+
+  APIGatewayCreatorFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: !Sub 'apigateway-resource-creator-${Environment}'
+      Handler: index.handler
+      Runtime: python3.12
+      CodeUri: .
+      Description: Lambda para crear recursos en AWS API Gateway via JSON payload
+      MemorySize: 512
+      Timeout: 120
+      Role: !GetAtt CustomLambdaRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          LOG_LEVEL: INFO
+      Tags:
+        env: !Ref Environment
+        project: apigateway-creator
+        managed-by: cloudformation
+
+Outputs:
+  FunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt APIGatewayCreatorFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionArn'
+
+  FunctionName:
+    Description: Name of the Lambda function
+    Value: !Ref APIGatewayCreatorFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionName'

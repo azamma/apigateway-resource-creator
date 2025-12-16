@@ -1,0 +1,53 @@
+{
+  "operation": "create_endpoint",
+  "config": {
+    "api_id": "abc123xyz",
+    "api_name": "discounts-api-ci",
+    "stage": "ci"
+  },
+  "authentication": {
+    "method": "AUTHORIZER",
+    "authorizer_id": "auth456def",
+    "auth_type": "COGNITO_CUSTOMER",
+    "cognito_pool": "customer-pool-ci"
+  },
+  "endpoint": {
+    "full_backend_path": "/discounts/v2/campaigns/{id}",
+    "api_gateway_path": "/v2/campaigns/{id}",
+    "http_methods": ["GET", "POST", "PUT", "DELETE"]
+  },
+  "integration": {
+    "connection_type": "VPC_LINK",
+    "connection_variable": "vpcLinkId",
+    "backend_host": "https://${stageVariables.urlDiscountsPrivate}",
+    "timeout_ms": 29000,
+    "passthrough_behavior": "WHEN_NO_MATCH",
+    "integration_type": "HTTP_PROXY"
+  },
+  "headers": {
+    "auth_headers": {
+      "Claim-Email": "context.authorizer.claims.email",
+      "Claim-User-Id": "context.authorizer.claims.custom:customer_id",
+      "CognitoPool": "'customer'",
+      "KNOWN-TOKEN-KEY": "stageVariables.knownTokenKey",
+      "X-Amzn-Request-Id": "context.requestId"
+    },
+    "custom_headers": {
+      "X-Custom-Header": "custom-value"
+    }
+  },
+  "cors": {
+    "enabled": true,
+    "type": "DEFAULT",
+    "headers": {
+      "Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Api-Version'",
+      "Access-Control-Allow-Methods": "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'",
+      "Access-Control-Allow-Origin": "'*'"
+    }
+  },
+  "metadata": {
+    "created_by": "apiGatewayCreator-script",
+    "timestamp": "2025-12-12T16:30:00Z",
+    "profile_name": "discounts-prod-customer"
+  }
+}
